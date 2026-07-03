@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""mlxctl — manage local MLX / Hugging Face models with colorful output.
+
+Commands:
+  list                  List downloaded models (size + complete/incomplete)
+  status <repo>         Show download progress for one repo (incomplete-aware)
+  download <repo>       Download a model (refuses if one is already running)
+  remove <repo>         Delete a model from the cache
+  clean [repo]          Kill stale downloads, clear locks, drop partials
+  run <repo> [args...]  Launch mlx_lm.chat on a model (passes extra args through)
+  search <query>        Search mlx-community on the Hub
+
+Repo can be the full id (mlx-community/Qwen3.5-9B-4bit) or a unique
+substring of one already in the cache (e.g. "9b", "3.6").
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# Location of the MLX virtualenv (override with MLX_VENV). The 'hf' and
+# 'mlx_lm.chat' binaries are invoked from its bin/; fall back to PATH if absent.
+VENV_BIN = Path(os.environ.get("MLX_VENV", str(Path.home() / ".venvs/mlx"))) / "bin"
+HF = str(VENV_BIN / "hf") if (VENV_BIN / "hf").exists() else "hf"
+CHAT = str(VENV_BIN / "mlx_lm.chat") if (VENV_BIN / "mlx_lm.chat").exists() else "mlx_lm.chat"
+# HF cache location honors HF_HOME if set, else the default.
+HUB = Path(os.environ.get("HF_HOME", str(Path.home() / ".cache/huggingface"))) / "hub"
+LOCKS = HUB / ".locks"
+
+# ---- colors -------------------------------------------------------------
+TTY = sys.stdout.isatty()
+def c(code, s):
+    return f"\033[{code}m{s}\033[0m" if TTY else s
+def bold(s):  return c("1", s)
+def dim(s):   return c("2", s)
+def red(s):   return c("31", s)
+def grn(s):   return c("32", s)
+def yel(s):   return c("33", s)
+def blu(s):   return c("34", s)
+def cyn(s):   return c("36", s)
+def mag(s):   return c("35", s)
+
+OK = grn("●"); WAIT = yel("◐"); BAD = red("○")
+
+def die(msg, code=1):
+    print(red("✗ ") + msg); sys.exit(code)
+
+def human(n):
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or u == "TB":
+            return f"{n:.1f}{u}" if u != "B" else f"{int(n)}B"
+        n /= 1024
+
+def repo_to_dir(repo):
+    return HUB / ("models--" + repo.replace("/", "--"))
+
+def dir_to_repo(d):
+    return d.name.replace("models--", "").replace("--", "/", 1).replace("--", "/")
+
+def du_bytes(path):
+    total = 0
+    for root, _, files in os.walk(path):
+        for f in files:
+            fp = Path(root) / f
+            try:
+                total += fp.stat(follow_symlinks=False).st_size
+                if fp.is_symlink():
+                    total += os.path.realpath(fp) and Path(os.path.realpath(fp)).stat().st_size or 0
+            except OSError:
+                pass
+    return total
+
+def real_size(path):
+    """Sum of resolved blob sizes incl. .incomplete temp files (true on-disk)."""
+    total = 0
+    blobs = path / "blobs"
+    if blobs.exists():
+        for f in blobs.iterdir():
+            try:
+                total += f.stat().st_size
+            except OSError:
+                pass
+    return total
+
+def all_repos():
+    if not HUB.exists():
+        return []
+    return sorted([d for d in HUB.iterdir()
+                   if d.is_dir() and d.name.startswith("models--")],
+                  key=lambda d: d.name)
+
+def resolve(repo):
+    """Accept full id or unique substring of a cached repo."""
+    if "/" in repo and repo_to_dir(repo).exists():
+        return repo
+    matches = [dir_to_repo(d) for d in all_repos()
+               if repo.lower() in dir_to_repo(d).lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        die("ambiguous '%s' matches:\n  %s" % (repo, "\n  ".join(matches)))
+    return repo  # not cached yet (e.g. for download)
+
+def completeness(d):
+    """Return (status, done_bytes, expected_bytes_or_None)."""
+    snaps = d / "snapshots"
+    incompletes = list((d / "blobs").glob("*.incomplete")) if (d / "blobs").exists() else []
+    snap = next((s for s in snaps.iterdir() if s.is_dir()), None) if snaps.exists() else None
+    idx = snap / "model.safetensors.index.json" if snap else None
+    single = snap / "model.safetensors" if snap else None
+    needed = []
+    if idx and idx.exists():
+        wm = json.load(open(idx))["weight_map"]
+        needed = sorted(set(wm.values()))
+    elif single and single.exists():
+        needed = ["model.safetensors"]
+    missing = [f for f in needed if not (snap / f).exists()]
+    on_disk = real_size(d)
+    if incompletes or (needed and missing):
+        return "incomplete", on_disk, None
+    if needed and not missing:
+        return "complete", on_disk, on_disk
+    # no safetensors index — accept any weight format (.bin/.npz/.gguf/.safetensors)
+    if snap:
+        weights = [p for p in snap.iterdir()
+                   if p.suffix in (".safetensors", ".bin", ".npz", ".gguf", ".pt")]
+        if weights:
+            return "complete", on_disk, on_disk
+    return "partial", on_disk, None
+
+def downloading_pid(repo):
+    try:
+        out = subprocess.run(["pgrep", "-f", f"hf download.*{re.escape(repo)}"],
+                             capture_output=True, text=True).stdout.split()
+        return out[0] if out else None
+    except Exception:
+        return None
+
+# ---- commands -----------------------------------------------------------
+def cmd_list(_args):
+    repos = all_repos()
+    if not repos:
+        print(dim("(cache empty)")); return
+    print(bold(f"{'STATUS':<9}{'SIZE':>9}  REPO"))
+    print(dim("─" * 60))
+    total = 0
+    for d in repos:
+        st, size, _ = completeness(d)
+        total += size
+        repo = dir_to_repo(d)
+        dl = downloading_pid(repo)
+        if dl:
+            sym, label = WAIT, yel("downloading")
+        elif st == "complete":
+            sym, label = OK, grn("complete")
+        elif st == "incomplete":
+            sym, label = WAIT, yel("incomplete")
+        else:
+            sym, label = BAD, dim("partial")
+        print(f"{sym} {label:<16}{human(size):>9}  {cyn(repo)}")
+    print(dim("─" * 60))
+    print(f"{'':9}{bold(human(total)):>18}  {dim(str(len(repos)) + ' repos')}")
+
+def cmd_status(args):
+    if not args: die("usage: mlxctl status <repo>")
+    repo = resolve(args[0]); d = repo_to_dir(repo)
+    if not d.exists(): die(f"not in cache: {repo}")
+    st, size, _ = completeness(d)
+    snaps = d / "snapshots"
+    snap = next((s for s in snaps.iterdir() if s.is_dir()), None) if snaps.exists() else None
+    print(bold(repo))
+    dl = downloading_pid(repo)
+    print(f"  state   : " + (yel("downloading (pid %s)" % dl) if dl else
+          {"complete": grn("complete ✓"),
+           "incomplete": yel("incomplete"),
+           "partial": dim("configs only")}[st]))
+    print(f"  on disk : {bold(human(size))}")
+    inc = list((d / "blobs").glob("*.incomplete")) if (d / "blobs").exists() else []
+    print(f"  pending : {len(inc)} .incomplete file(s)")
+    if snap:
+        idx = snap / "model.safetensors.index.json"
+        if idx.exists():
+            files = sorted(set(json.load(open(idx))["weight_map"].values()))
+            for f in files:
+                p = snap / f
+                if p.exists():
+                    sz = Path(os.path.realpath(p)).stat().st_size
+                    print(f"    {grn('✓')} {f}  {dim(human(sz))}")
+                else:
+                    print(f"    {red('✗')} {f}  {dim('missing')}")
+
+def cmd_download(args):
+    if not args: die("usage: mlxctl download <repo>")
+    repo = args[0]
+    if downloading_pid(repo):
+        die(f"already downloading {repo} (pid {downloading_pid(repo)}). Refusing to start a second one.")
+    print(cyn("↓ downloading ") + bold(repo) + dim("  (Ctrl+C-safe to re-run; let it finish)"))
+    os.execv(HF, [HF, "download", repo])
+
+def cmd_remove(args):
+    if not args: die("usage: mlxctl remove <repo>")
+    repo = resolve(args[0]); d = repo_to_dir(repo)
+    if not d.exists(): die(f"not in cache: {repo}")
+    pid = downloading_pid(repo)
+    if pid:
+        die(f"{repo} is downloading (pid {pid}). Run 'mlxctl clean {repo}' first.")
+    size = real_size(d)
+    print(red("✗ removing ") + bold(repo) + dim(f"  ({human(size)})"))
+    subprocess.run(["rm", "-rf", str(d)])
+    subprocess.run(["rm", "-rf", str(LOCKS / d.name)])
+    print(grn("done."))
+
+def cmd_clean(args):
+    target = args[0] if args else "Qwen|Llama|mlx|model"  # broad if none given
+    if args:
+        repo = args[0]
+        subprocess.run(["pkill", "-f", f"hf download.*{repo}"])
+        d = repo_to_dir(resolve(repo))
+        subprocess.run(["rm", "-rf", str(d)])
+        subprocess.run(["rm", "-rf", str(LOCKS / d.name)])
+        print(grn(f"cleaned {repo}: killed downloads, removed partial + locks ✓"))
+        return
+    # global tidy: kill nothing, just clear stale locks + report incompletes
+    killed = subprocess.run(["pkill", "-0", "-f", "hf download"],
+                            capture_output=True).returncode == 0
+    print(yel("active hf download running") if killed else dim("no active downloads"))
+    n = 0
+    if LOCKS.exists():
+        for lk in LOCKS.rglob("*.lock"):
+            lk.unlink(missing_ok=True); n += 1
+    print(grn(f"cleared {n} stale lock file(s) ✓"))
+    for d in all_repos():
+        st, size, _ = completeness(d)
+        if st == "incomplete":
+            print(f"  {yel('⚠')} incomplete: {cyn(dir_to_repo(d))} ({human(size)}) "
+                  + dim("→ mlxctl remove it or finish the download"))
+
+def cmd_run(args):
+    if not args: die("usage: mlxctl run <repo> [extra mlx_lm.chat args]")
+    repo = resolve(args[0])
+    extra = args[1:] or ["--max-tokens", "2048"]
+    print(mag("▶ launching ") + bold(repo) + dim(" " + " ".join(extra)))
+    os.execv(CHAT, [CHAT, "--model", repo, *extra])
+
+def cmd_search(args):
+    if not args: die("usage: mlxctl search <query>")
+    try:
+        from huggingface_hub import HfApi
+    except ImportError:
+        die("search needs huggingface_hub. Run it from the MLX venv, or set "
+            "MLX_VENV to a venv that has it (pip install huggingface_hub).")
+    hits = HfApi().list_models(author="mlx-community", search=args[0], limit=40)
+    ids = sorted(h.id for h in hits)
+    if not ids:
+        print(dim("no matches")); return
+    for i in ids:
+        print("  " + cyn(i))
+    print(dim(f"\n{len(ids)} result(s) — download with: mlxctl download <repo>"))
+
+CMDS = {
+    "list": cmd_list, "ls": cmd_list,
+    "status": cmd_status, "st": cmd_status,
+    "download": cmd_download, "dl": cmd_download,
+    "remove": cmd_remove, "rm": cmd_remove,
+    "clean": cmd_clean,
+    "run": cmd_run,
+    "search": cmd_search,
+}
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__); return
+    cmd = sys.argv[1]
+    fn = CMDS.get(cmd)
+    if not fn:
+        die(f"unknown command '{cmd}'. Run 'mlxctl help'.")
+    fn(sys.argv[2:])
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(); sys.exit(130)

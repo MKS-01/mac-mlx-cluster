@@ -1,0 +1,3 @@
+# Apple Silicon only. Install into a venv:
+#   python3.12 -m venv ~/.venvs/mlx && ~/.venvs/mlx/bin/pip install -r requirements.txt
+mlx-lm
