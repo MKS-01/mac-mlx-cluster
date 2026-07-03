@@ -1,0 +1,5 @@
+# Development tooling. Install on top of the runtime deps:
+#   ~/.venvs/mlx/bin/pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+
+ruff        # lint + format the mlxctl CLI

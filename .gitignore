@@ -1,0 +1,21 @@
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local logs / scratch
+*.log
+*.err
+
+# Real cluster hostfile (contains usernames/IPs) — commit only the .example
+cluster/hostfile.json
