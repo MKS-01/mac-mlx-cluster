@@ -52,6 +52,14 @@ also see in-progress downloads). This cache is shared and load-bearing:
 both `mlx_lm.server` (offline mode) and the CLI's `/model` command treat
 "what's in this cache" as the hard source of truth for what can be served.
 
+Dev loop:
+
+```sh
+~/.venvs/mlx/bin/pip install -r src/tools/requirements.txt -r src/tools/requirements-dev.txt
+ruff check src/tools/mlxctl      # lint
+ruff format src/tools/mlxctl     # format
+```
+
 ### Wired-memory limit (`mlxctl meminfo`)
 
 Two layers, easy to conflate:

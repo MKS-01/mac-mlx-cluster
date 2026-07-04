@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-This is a docs + tooling repo for Mac cluster setup and experimentation with MLX LLMs on Apple Silicon and across a two-Mac cluster. It holds guides (`doc/MLX_QUICKSTART.md`, `doc/CLUSTER_SETUP.md`), the Python `mlxctl` CLI (no build/test/lint), and `src/cli/` — a standalone Bun/TypeScript terminal chat client (see below).
+This is a docs + tooling repo for Mac cluster setup and experimentation with MLX LLMs on Apple Silicon and across a two-Mac cluster. It holds guides (`doc/MLX_QUICKSTART.md`, `doc/CLUSTER_SETUP.md`), the Python `mlxctl` CLI (no build/test, `ruff` for lint/format — see `doc/ARCHITECTURE.md`), and `src/cli/` — a standalone Bun/TypeScript terminal chat client (see below).
 
 **Release plan: private now, open-sourced later.** Keep secrets and personal absolute paths out of committed files (or isolate them so they're easy to scrub). Write docs and `mlxctl` for an eventual public audience.
 

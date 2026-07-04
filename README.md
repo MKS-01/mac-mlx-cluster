@@ -19,16 +19,15 @@ or sharded across two when the model is too big for either.
 
 ## Why this exists
 
-Built after watching [WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/)
-and immediately wondering if my aging M1 Pro could stop being a paperweight
-and actually pull its weight next to a newer Mac. First proof it worked was
-[exo](https://github.com/exo-explore/exo); then `mlx.launch` showed the
-MLX-native way to do it. And because I'd rather automate a thing once than
-type it by hand forever, it all got wrapped into a proper terminal CLI —
-built the way most of my side projects get built, in short bursts during my
-weekend 1–3 AM ghost hours, the only time my brain is somehow at its best.
-Every command in [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run
-for real, failures included — that's where the gotchas sections come from.
+A weekend 1–3 AM side project, built after watching
+[WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/)
+to see if my aging M1 Pro could pull its weight next to a newer Mac.
+[exo](https://github.com/exo-explore/exo) proved it possible, but its
+auto-discovery and web dashboard are overkill for two Macs whose IPs I
+already know — `mlx.launch` does the same job MLX-native with a fraction
+of the moving parts, wrapped here in a proper terminal CLI. Every command
+in [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real,
+failures included — that's where the gotchas sections come from.
 
 ```
    ┌──────────────────────┐                          ┌──────────────────────┐
@@ -45,14 +44,32 @@ for real, failures included — that's where the gotchas sections come from.
 
 ## What's in the box
 
-| | |
-|---|---|
-| **`mlx-cluster-cli`** | Terminal chat client + cluster operator: live CPU/GPU/RAM bars for both Macs, in-session model switching, wear-leveling so one machine doesn't take all the load, and `/mode cluster` to shard an oversized model across both — without leaving your chat. |
-| **`mlxctl`** | The model-cache manager `hf` should have shipped with: true on-disk sizes, per-shard download progress, stuck-download rescue, and a will-it-fit verdict against your Mac's real wired-memory ceiling. `ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl`, then `mlxctl --help`. |
-| **Verified guides** | Single-Mac quickstart → Thunderbolt bridge → SSH mesh → distributed smoke test → always-on LaunchAgent server. Each step actually run on the hardware in the diagram above. |
+- **`mlx-cluster-cli`** — terminal chat client + cluster operator: live CPU/GPU/RAM
+  bars for both Macs, in-session model switching, wear-leveling so one machine
+  doesn't take all the load, and `/mode cluster` to shard an oversized model
+  across both — without leaving your chat.
+- **`mlxctl`** — the model-cache manager `hf` should have shipped with: true
+  on-disk sizes, per-shard download progress, stuck-download rescue, and a
+  will-it-fit verdict against your Mac's real wired-memory ceiling.
+- **Verified guides** — single-Mac quickstart → Thunderbolt bridge → SSH mesh →
+  distributed smoke test → always-on LaunchAgent server, each step actually
+  run on the hardware in the diagram above.
 
 Only the cluster pieces need two Macs — the quickstart and `mlxctl` are fully
 standalone on a single Apple Silicon machine.
+
+## Key features
+
+- **Solo, server, or sharded** — `/mode solo|server|cluster` switches how a
+  model is served mid-session, no restart, no leaving the chat.
+- **Wear-leveling** — `/split 60/40` balances serving time between the two
+  Macs so one doesn't quietly take all the GPU wear.
+- **Live cluster stats** — per-node CPU/GPU/RAM/temp gauges, `/stats` to
+  toggle combined vs. per-node view.
+- **Memory-fit verdicts** — models and mode switches are checked against
+  your Mac's real wired-memory ceiling before you commit to loading one.
+- **Zero cloud, ever** — every request stays on the Thunderbolt bridge or
+  localhost; nothing leaves the desk.
 
 ## Quick start
 
@@ -71,48 +88,29 @@ That's a local LLM, chatting, on one Mac. Details in
 [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md); when you're ready for the
 second Mac, [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) takes it from here.
 
+For `mlxctl`, symlink it onto your `PATH` and run `mlxctl --help`:
+
+```sh
+ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl
+```
+
 ## Running the cluster
 
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) is the full verified
-walkthrough — bridge IPs, SSH mesh, hostfile, smoke test, LaunchAgent. Once
-it's up, `mlx-cluster-cli` handles daily driving, including the sharded mode
-that used to require hand-typed `mlx.launch` incantations:
-
-```
-/mode solo       serve on this Mac only, free the server node
-/mode cluster    shard the model across every node — for the big ones
-/model 27b       hot-swap models by substring, whatever the mode
-/split 60/40     wear-leveling: balance which Mac serves over time
-```
-
-Direct server access, if you want it raw (server Mac = `10.0.0.1`):
-
-```sh
-curl -s http://10.0.0.1:8080/v1/models                                     # health check
-ssh <user>@10.0.0.1 'launchctl kickstart -k gui/$(id -u)/com.mlx-server'   # restart
-python3 src/tools/chat.py                                                  # debug/test client
-```
-
-## Development
-
-```sh
-~/.venvs/mlx/bin/pip install -r src/tools/requirements.txt -r src/tools/requirements-dev.txt
-ruff check src/tools/mlxctl      # lint
-ruff format src/tools/mlxctl     # format
-```
-
-For the TypeScript CLI (Bun + Ink), see [`src/cli/README.md`](./src/cli/README.md).
+walkthrough — bridge IPs, SSH mesh, hostfile, smoke test, LaunchAgent, and
+direct server access (`curl`/`ssh`/the zero-dep debug client) if you want it
+raw. Once it's up, [`mlx-cluster-cli`](./src/cli/README.md) handles daily
+driving — `/mode`, `/model`, `/split` — including the sharded mode that used
+to require hand-typed `mlx.launch` incantations.
 
 ## Documentation
 
-| Doc | What it covers |
-|-----|----------------|
-| [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) | The system-level reference: topology, data flow, and *why* the design is shaped this way |
-| [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) | Single Mac, zero to chatting |
-| [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) | The two-Mac walkthrough, every command verified, gotchas included |
-| [`doc/ROADMAP.md`](./doc/ROADMAP.md) | Planned but not-yet-built work |
-| [`src/cli/README.md`](./src/cli/README.md) | `mlx-cluster-cli` setup, commands, error handling |
-| [`src/tools/`](./src/tools/) | `mlxctl`, the distributed benchmark (`dist_bench.py`), the zero-dep debug client (`chat.py`), example configs |
+- [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
+  topology, data flow, and *why* the design is shaped this way (also where the
+  Python-side dev/lint commands live)
+- [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) — single Mac, zero to chatting
+- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — the two-Mac walkthrough,
+  every command verified, gotchas included
 
 ## License
 
