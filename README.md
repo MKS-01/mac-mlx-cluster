@@ -24,6 +24,11 @@ Nothing here is theoretical — every command in
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) is one that was actually
 run, against a real M1 Pro + M5 Pro sitting on the same desk.
 
+<!--
+Screenshot pending — drop it in doc/img/ (e.g. doc/img/cli.png) and swap
+the line below for: ![mlx-cluster-cli](./doc/img/cli.png)
+-->
+
 ## What's in here
 
 - **A model cache manager** (`mlxctl`) — list/download/remove/clean Hugging Face-cached
@@ -45,12 +50,12 @@ a single Apple Silicon Mac.
 | File | What it is |
 |------|------------|
 | [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) | System-level reference: topology, data flow, and the CLI's internal design |
-| [`doc/ROADMAP.md`](./doc/ROADMAP.md) | Planned but not-yet-built work |
-| [`src/mlxctl`](./src/mlxctl) | A colorful CLI to list, download, inspect, and clean cached MLX/Hugging Face models |
 | [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) | Get `mlx-lm` running and chat with a model in a few commands |
 | [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) | Verified two-Mac cluster walkthrough: Thunderbolt bridge, SSH, hostfile, distributed smoke tests, and an always-on model server |
+| [`doc/ROADMAP.md`](./doc/ROADMAP.md) | Planned but not-yet-built work |
+| [`src/mlxctl`](./src/mlxctl) | The model cache manager — see [below](#mlxctl) |
+| [`src/cli/`](./src/cli/) | `mlx-cluster-cli` — terminal chat client + lifecycle manager (Bun/TypeScript/Ink), own [README](./src/cli/README.md) |
 | [`src/cluster/chat.py`](./src/cluster/chat.py) | Zero-dependency interactive chat client for any OpenAI-compatible endpoint |
-| [`src/cli/`](./src/cli/) | `mlx-cluster-cli` — terminal chat client + lifecycle manager for the cluster (Bun/TypeScript/Ink) |
 
 ## Requirements
 
@@ -90,8 +95,8 @@ ln -s "$PWD/src/mlxctl" ~/.venvs/mlx/bin/mlxctl
 | `mlxctl list` | All cached models with true size + status (counts in-progress downloads) |
 | `mlxctl status <repo>` | Per-shard download progress for one model |
 | `mlxctl download <repo>` | Download a model (refuses if one is already running) |
-| `mlxctl remove <repo>` | Delete a model from the cache |
-| `mlxctl clean [repo]` | Clear stale locks / kill a stuck download + drop partials |
+| `mlxctl remove <repo>` | Delete a model from the cache entirely, complete or not |
+| `mlxctl clean [repo]` | Kill a stuck download, clear stale locks, drop stale partial files only — never touches complete files |
 | `mlxctl run <repo> [args]` | Launch `mlx_lm.chat` (repo accepts a unique substring, e.g. `9b`) |
 | `mlxctl search <query>` | Search `mlx-community` on the Hub |
 | `mlxctl meminfo [repo]` | This Mac's wired-memory ceiling (+ a fit verdict for a cached model) |
@@ -101,46 +106,22 @@ ln -s "$PWD/src/mlxctl" ~/.venvs/mlx/bin/mlxctl
   `hf` and `mlx_lm.chat` from its `bin/`, falling back to `PATH` if not found.
 - `HF_HOME` — Hugging Face cache location (default `~/.cache/huggingface`).
 
-## Cluster cheat sheet
+## Cluster quick reference
 
-Assumes the two-Mac setup from [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md)
-(server Mac = `10.0.0.1` on the Thunderbolt bridge, `<user>` = your username).
+Full walkthrough (bridge setup, SSH, hostfile, distributed smoke tests) is in
+[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — read that first if you're
+setting this up for the first time. Once it's running, `mlx-cluster-cli`
+(below) drives day-to-day use, including sharding a model across both Macs
+(`/mode cluster`) without needing the raw `mlx.launch` commands by hand.
 
-**Model server** (LaunchAgent on the server Mac):
+For direct access to the always-on server (server Mac = `10.0.0.1` on the
+bridge, `<user>` = your username):
 
 ```sh
-ssh <user>@10.0.0.1 'launchctl kickstart -k gui/$(id -u)/com.mlx-server'   # start / restart
-ssh <user>@10.0.0.1 'launchctl bootout gui/$(id -u)/com.mlx-server'       # stop (until next login)
-ssh <user>@10.0.0.1 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mlx-server.plist'  # re-enable
-ssh <user>@10.0.0.1 'tail -20 ~/Library/Logs/mlx-server.log'              # logs
+ssh <user>@10.0.0.1 'launchctl kickstart -k gui/$(id -u)/com.mlx-server'   # restart
+ssh <user>@10.0.0.1 'launchctl bootout gui/$(id -u)/com.mlx-server'       # stop
 curl -s http://10.0.0.1:8080/v1/models                                    # health check
 python3 src/cluster/chat.py                                               # interactive chat
-```
-
-**Networking:**
-
-```sh
-ifconfig bridge0 | grep -E 'status|inet '        # Thunderbolt bridge link + IP
-ping -c 2 10.0.0.1                               # reach the other Mac (~1-2 ms)
-sudo networksetup -setmanual "Thunderbolt Bridge" 10.0.0.2 255.255.255.0   # set static IP
-ssh -o BatchMode=yes <user>@10.0.0.1 hostname    # passwordless SSH check
-```
-
-**Distributed MLX:**
-
-```sh
-# cluster smoke test (all_sum across both Macs)
-mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
-    --python "$HOME/.venvs/mlx/bin/python" "$HOME/.mlx/ring_test.py"
-
-# sharded inference test (memory + tok/s per rank)
-mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
-    --python "$HOME/.venvs/mlx/bin/python" "$HOME/.mlx/tp_test.py" [model-repo]
-
-# interactive distributed chat (real TTY only — don't pipe stdin)
-mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
-    --python "$HOME/.venvs/mlx/bin/python" -- \
-    "$HOME/.venvs/mlx/bin/mlx_lm.chat" --model <repo> --max-tokens 2048
 ```
 
 ## Development
