@@ -1,35 +1,43 @@
 import React from "react";
-import { Box, Text, Static } from "ink";
+import { Box, Text } from "ink";
 import { DIM, FG, BLUE, RED } from "../theme";
 import type { ChatMessage } from "../chat";
 
-// Only completed messages go through <Static> (Ink never re-renders these —
-// required for a scrolling transcript that doesn't repaint on every token).
-// The in-flight assistant reply renders separately below, live.
+// Deliberately NOT <Static> — Static permanently flushes to the real
+// terminal scrollback, so the fixed header above it gets pushed up and out
+// of view as the transcript grows (that's the whole "keeps scrolling down"
+// bug). Instead the caller windows `visible` to whatever fits the terminal
+// height (see chatWindow.ts) and this just re-renders that slice in place
+// each frame, like the rest of the Ink tree.
 export function ChatView({
-  history,
+  visible,
+  hiddenCount,
   streaming,
   error,
 }: {
-  history: ChatMessage[];
+  visible: ChatMessage[];
+  hiddenCount: number;
   streaming: string | null;
   error: string | null;
 }) {
   return (
     <Box flexDirection="column">
-      <Static items={history}>
-        {(msg, i) => (
-          <Box key={i} marginBottom={1}>
-            <Text>
-              <Text color={msg.role === "user" ? BLUE : FG} bold>
-                {msg.role === "user" ? "you" : "model"}
-              </Text>
-              <Text color={DIM}>{"  "}</Text>
-              <Text>{msg.content}</Text>
+      {hiddenCount > 0 && (
+        <Box marginBottom={1}>
+          <Text color={DIM}>↑ {hiddenCount} earlier message{hiddenCount === 1 ? "" : "s"} (/clear to reset)</Text>
+        </Box>
+      )}
+      {visible.map((msg, i) => (
+        <Box key={i} marginBottom={1}>
+          <Text>
+            <Text color={msg.role === "user" ? BLUE : FG} bold>
+              {msg.role === "user" ? "you" : "model"}
             </Text>
-          </Box>
-        )}
-      </Static>
+            <Text color={DIM}>{"  "}</Text>
+            <Text>{msg.content}</Text>
+          </Text>
+        </Box>
+      ))}
       {streaming !== null && (
         <Box marginBottom={1}>
           <Text>
