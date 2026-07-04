@@ -8,7 +8,7 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 
 ## Layout
 
-- `doc/` — all markdown guides (`MLX_QUICKSTART.md`, `CLUSTER_SETUP.md`, `CLI_PLAN.md`).
+- `doc/` — all markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions) — read it before making non-trivial changes to `src/cli/`. `MLX_QUICKSTART.md`/`CLUSTER_SETUP.md`/`CLI_PLAN.md` are the detailed setup/design-history docs it links out to.
 - `src/` — all code: `mlxctl`, `requirements*.txt`, `src/cluster/` (Python distributed-MLX scripts + example configs), `src/cli/` (the TypeScript chat client).
 - `CLAUDE.md`, `README.md`, `LICENSE` stay at repo root.
 
@@ -47,14 +47,12 @@ Prefer the newest Qwen (3.6 > 3.5). For 48 GB: 4bit ≈ 15 GB, 6bit ≈ 21 GB, 8
 
 ## `src/cli/` — mlx-cluster-cli (terminal chat client)
 
-Standalone Bun/TypeScript/Ink project living inside this repo — its own `package.json`/lockfile/tsconfig/`.gitignore`, no root-level workspace tooling ties it to the Python side.
+Standalone Bun/TypeScript/Ink project living inside this repo — its own `package.json`/lockfile/tsconfig/`.gitignore`, no root-level workspace tooling ties it to the Python side. **See `doc/ARCHITECTURE.md` for the design** (mode decision, wear-leveling split, `/model` switching, why Ink rendering uses a fixed line budget instead of a scroll region) — don't touch line-budget constants in `app.tsx` (`HEADER_LINES`, `PANEL_FIXED_LINES`, etc.) without reading that first, or the header/stats panel will silently overflow off-screen.
 
 - `bun run dev` / `bun run start` — run directly from `src/index.tsx` (relative to `src/cli/`).
 - `bun run build` — compiles to `dist/mlx-cluster-cli` (standalone binary).
 - `bun run setup` — runs `install.sh`: `bun install` + build + installs to `~/.local/bin` (override with `MLX_CLI_BIN_DIR`).
 - No lint/test scripts exist.
 - Config at `~/.mlx/cluster-cli.json` (copy from `src/cli/config.example.json`). **Missing file silently falls back to hardcoded defaults** (`10.0.0.1`/`10.0.0.2`) instead of failing — a config typo can look like it worked while talking to the wrong IPs. Malformed JSON does throw (`ConfigError`).
+- Prefs/history at `~/.mlx/cluster-cli-prefs.json` (last model, stats view, wear-leveling split target + accumulated time) — written by the CLI itself, never hand-edit while a session is running (it gets overwritten on quit).
 - Depends on this repo's environment: `venvPath` (→ `~/.venvs/mlx`) for local-fallback mode, and the `doc/CLUSTER_SETUP.md` LaunchAgent (`plistPath`/`serviceLabel`) for cluster mode.
-- **Mode decision** (`cluster.ts:connect`): HTTP-check the M1 server → SSH-bootstrap it if down → local-spawn only if both fail. Tracks whether *this session* started the remote server (`ClusterOrigin`) so it only tears down infra it started, never infra it merely attached to.
-- **`/model` switch**: resolves the given name/substring against the HF cache actually present on the serving node (the server runs with `HF_HUB_OFFLINE=1`, so the cache is the hard gate, not a static list) — cluster mode edits the remote LaunchAgent plist + `launchctl kickstart`, local mode kills+respawns the CLI's own process.
-- **Ink rendering has no real scroll region**: the transcript is a fixed-height "tail" window recomputed every render from `stdout.rows` minus fixed line-budget constants in `app.tsx` (`HEADER_LINES`, `PANEL_FIXED_LINES`, etc.) — this is what keeps the header/stats bar pinned instead of scrolling off. If you add UI rows, update those constants or the layout will silently overflow.
