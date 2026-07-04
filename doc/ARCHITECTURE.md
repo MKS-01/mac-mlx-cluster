@@ -3,8 +3,7 @@
 System-level reference: what talks to what, where state lives, and why the
 non-obvious decisions were made. For step-by-step setup, see
 [`CLUSTER_SETUP.md`](./CLUSTER_SETUP.md); for single-Mac basics, see
-[`MLX_QUICKSTART.md`](./MLX_QUICKSTART.md); for the CLI's design history,
-see [`CLI_PLAN.md`](./CLI_PLAN.md).
+[`MLX_QUICKSTART.md`](./MLX_QUICKSTART.md).
 
 ## Hardware topology
 

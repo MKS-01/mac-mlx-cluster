@@ -8,7 +8,7 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 
 ## Layout
 
-- `doc/` — all markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions) — read it before making non-trivial changes to `src/cli/`. `MLX_QUICKSTART.md`/`CLUSTER_SETUP.md`/`CLI_PLAN.md` are the detailed setup/design-history docs it links out to. **`ROADMAP.md`** tracks planned-but-not-built work — check it before assuming a feature doesn't exist yet vs. was deliberately deferred.
+- `doc/` — all markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions) — read it before making non-trivial changes to `src/cli/`. `MLX_QUICKSTART.md`/`CLUSTER_SETUP.md` are the detailed setup docs it links out to. **`ROADMAP.md`** tracks planned-but-not-built work — check it before assuming a feature doesn't exist yet vs. was deliberately deferred.
 - `src/` — all code: `mlxctl`, `requirements*.txt`, `src/cluster/` (Python distributed-MLX scripts + example configs), `src/cli/` (the TypeScript chat client).
 - `.claude/skills/` — project skills for common cluster/CLI tasks (`ssh-check`, `debug`, `model-fit`, `model-transfer`, `cleanup`, `design-system`). Invoke with `/name` or let Claude pick one up from context.
 - `CLAUDE.md`, `README.md`, `LICENSE` stay at repo root.

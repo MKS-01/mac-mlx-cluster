@@ -1,12 +1,28 @@
 # mac-mlx-cluster
 
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 ![Platform: Apple Silicon](https://img.shields.io/badge/platform-Apple%20Silicon-black?logo=apple)
 ![Python: 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)
 ![Powered by MLX](https://img.shields.io/badge/powered%20by-MLX-orange)
 
 Tooling and guides for running [MLX](https://github.com/ml-explore/mlx) LLMs locally on
-Apple Silicon — on a single Mac, or distributed across a two-Mac cluster.
+Apple Silicon — on a single Mac, or distributed across a two-Mac cluster over Thunderbolt.
+Everything here is verified against a real setup (M1 Pro + M5 Pro), not just theory — see
+[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) for the exact commands that worked.
+
+## What's in here
+
+- **A model cache manager** (`mlxctl`) — list/download/remove/clean Hugging Face-cached
+  MLX models with incomplete-download-aware status, no more guessing why a model won't load.
+- **A single-Mac quickstart** — get `mlx-lm` chatting with a model in a few commands.
+- **A two-Mac cluster walkthrough** — Thunderbolt bridge, SSH, hostfile, distributed
+  smoke tests, and a dedicated always-on model server (LaunchAgent).
+- **A terminal chat client** (`mlx-cluster-cli`) — Bun/TypeScript/Ink app that manages
+  the cluster's server lifecycle, live CPU/GPU/RAM stats, model switching, and
+  wear-leveling between the two Macs, all from one interactive session.
+
+Only the cluster pieces need two Macs — the quickstart and `mlxctl` work standalone on
+a single Apple Silicon Mac.
 
 ## Contents
 
@@ -19,6 +35,13 @@ Apple Silicon — on a single Mac, or distributed across a two-Mac cluster.
 | [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) | Verified two-Mac cluster walkthrough: Thunderbolt bridge, SSH, hostfile, distributed smoke tests, and an always-on model server |
 | [`src/cluster/chat.py`](./src/cluster/chat.py) | Zero-dependency interactive chat client for any OpenAI-compatible endpoint |
 | [`src/cli/`](./src/cli/) | `mlx-cluster-cli` — terminal chat client + lifecycle manager for the cluster (Bun/TypeScript/Ink) |
+
+## Requirements
+
+- Apple Silicon Mac (M-series). A second Mac + a Thunderbolt cable is only needed for
+  the cluster features — everything else runs standalone.
+- Python 3.12+
+- [`mlx-lm`](https://github.com/ml-explore/mlx-lm) (pulls in `mlx`, `huggingface_hub`, etc.)
 
 ## Quick start
 
@@ -103,12 +126,6 @@ mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
     "$HOME/.venvs/mlx/bin/mlx_lm.chat" --model <repo> --max-tokens 2048
 ```
 
-## Requirements
-
-- Apple Silicon Mac (M-series)
-- Python 3.12+
-- `mlx-lm` (pulls in `mlx`, `huggingface_hub`, etc.)
-
 ## Development
 
 ```sh
@@ -116,6 +133,17 @@ mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
 ruff check src/mlxctl      # lint
 ruff format src/mlxctl     # format
 ```
+
+For `src/cli/` (the TypeScript chat client), see [`src/cli/README.md`](./src/cli/README.md).
+
+## Contributing
+
+Issues and PRs are welcome. This started as a personal hobby setup and is verified
+end-to-end only on the hardware in [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md#hardware-topology)
+(M1 Pro 32GB + M5 Pro 48GB over Thunderbolt 4) — if you run it on a different
+Apple Silicon combination, a PR noting what worked or didn't is especially useful.
+For non-trivial changes to `src/cli/`, read `doc/ARCHITECTURE.md` first; it explains
+the design decisions behind the code, not just what the code does.
 
 ## License
 
