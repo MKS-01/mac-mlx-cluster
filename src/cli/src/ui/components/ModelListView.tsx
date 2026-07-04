@@ -49,8 +49,13 @@ export function ModelListView({
           <Box key={m.repo}>
             <Text color={BLUE}>{isActive ? "★ " : "  "}</Text>
             <Text color={isActive ? FG : DIM}>{m.repo.padEnd(namePad)}</Text>
-            <Text color={DIM}>{"  "}{m.sizeGB.toFixed(1).padStart(5)} GB{"  "}</Text>
-            {verdict && <Text color={verdict.color}>{verdict.text}</Text>}
+            <Text color={DIM}>{"  "}{m.sizeGB.toFixed(1).padStart(5)} GB</Text>
+            {verdict && (
+              <Text>
+                <Text color={DIM}>{"  · "}</Text>
+                <Text color={verdict.color}>{verdict.text}</Text>
+              </Text>
+            )}
           </Box>
         );
       })}

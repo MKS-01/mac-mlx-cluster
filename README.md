@@ -32,9 +32,10 @@ or sharded across two when the model is too big for either.
 
 ## Why this exists
 
-A weekend question — *could two idle Macs run one LLM together?* — answered
-first with [exo](https://github.com/exo-explore/exo), then the MLX-native way
-via [WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/)'s
+A weekend 1–3 AM side project — the question that kept me up: *could two
+idle Macs run one LLM together?* Answered first with
+[exo](https://github.com/exo-explore/exo), then the MLX-native way via
+[WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/)'s
 `mlx.launch`, and finally wrapped in a real terminal CLI. Every command in
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real, failures
 included — that's where the gotchas sections come from.

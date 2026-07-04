@@ -1,8 +1,9 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { DIM, FG, BLUE, RED } from "../theme";
+import { DIM, BLUE, RED } from "../theme";
 import type { ChatMessage } from "../../chat/chat";
 import { cleanBody } from "../../chat/chatWindow";
+import { Markdown } from "../markdown";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
 // One transcript row: a fixed 2-col marker gutter + a flex content box, so
@@ -38,14 +39,31 @@ export function ChatView({
   hiddenCount,
   streaming,
   error,
+  pinnedQuestion,
 }: {
   visible: ChatMessage[];
   hiddenCount: number;
   streaming: string | null;
   error: string | null;
+  // The question being answered, when it has scrolled out of the window —
+  // pinned as a single truncated line so long replies never orphan their
+  // prompt (cleared with the transcript, like everything else).
+  pinnedQuestion?: string | null;
 }) {
   return (
     <Box flexDirection="column">
+      {pinnedQuestion && (
+        <Box marginBottom={1}>
+          <Box width={2} flexShrink={0}>
+            <Text color={BLUE}>❯</Text>
+          </Box>
+          <Box flexGrow={1}>
+            <Text color={DIM} wrap="truncate-end">
+              {pinnedQuestion.replace(/\s+/g, " ").trim()}
+            </Text>
+          </Box>
+        </Box>
+      )}
       {hiddenCount > 0 && (
         <Box marginBottom={1}>
           <Text color={DIM}>↑ {hiddenCount} earlier message{hiddenCount === 1 ? "" : "s"} (/clear to reset)</Text>
@@ -58,7 +76,7 @@ export function ChatView({
           </Row>
         ) : (
           <Row key={i} marker="●" markerColor={BLUE}>
-            <Text color={FG}>{cleanBody(msg.content)}</Text>
+            <Markdown text={cleanBody(msg.content)} />
           </Row>
         ),
       )}
@@ -70,7 +88,7 @@ export function ChatView({
         ) : (
           <Row marker="●" markerColor={BLUE}>
             <Text>
-              <Text color={FG}>{cleanBody(streaming)}</Text>
+              <Markdown text={cleanBody(streaming)} />
               <Text color={DIM}>▌</Text>
             </Text>
           </Row>

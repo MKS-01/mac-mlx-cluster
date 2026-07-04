@@ -1,12 +1,17 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { DIM, FG, GREEN, YELLOW, RED } from "../theme";
+import { DIM, FG, GREEN, YELLOW, RED, TRACK } from "../theme";
 import { pressureColor } from "../colorScale";
 import type { NodeStats, CombinedStats } from "../../net/macmon";
 
-function gb(bytes: number): string {
-  return (bytes / 1024 ** 3).toFixed(1);
-}
+// Gauge width in cells. Wide enough to read pressure at a glance, narrow
+// enough that a split-view line (id + bar + figures + suffix) fits 80 cols.
+const BAR_WIDTH = 16;
+// Lower-3/4 block for BOTH fill and track: same glyph = same height (no
+// stepped seam between fill and track), and the empty top quarter keeps
+// adjacent rows' bars from fusing into one blob — full-height █ touches the
+// row above/below.
+const BAR_CH = "▆";
 
 function tempColor(c: number): string {
   if (c >= 90) return RED;
@@ -14,38 +19,57 @@ function tempColor(c: number): string {
   return GREEN;
 }
 
-// Same idea as readback's ModelScreen fit-status coloring (green/yellow/red
-// on the data value itself, e.g. "fits"/"tight"/"too big") — applied to the
-// RAM figure here, not the wordmark/brand color, which stays static.
-function ramColor(used: number, total: number): string {
-  return total > 0 ? pressureColor(used / total) : DIM;
+// "14.2" for used (one decimal), "32" for whole-number totals — matches the
+// README's mock ("14.2 / 32 GB") and keeps the line from reading as noise.
+function gbUsed(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
+function gbTotal(bytes: number): string {
+  const g = bytes / 1024 ** 3;
+  return Number.isInteger(g) ? String(g) : g.toFixed(1);
 }
 
-function NodeLine({ node }: { node: NodeStats }) {
+/**
+ * Horizontal RAM gauge: filled cells take the green/yellow/red pressure
+ * color (the bar itself is the at-a-glance signal), track stays dark.
+ */
+function Bar({ pct }: { pct: number }) {
+  const clamped = Math.max(0, Math.min(1, pct));
+  const filled = Math.round(clamped * BAR_WIDTH);
+  return (
+    <Text>
+      <Text color={pressureColor(clamped)}>{BAR_CH.repeat(filled)}</Text>
+      <Text color={TRACK}>{BAR_CH.repeat(BAR_WIDTH - filled)}</Text>
+    </Text>
+  );
+}
+
+function NodeLine({ node, idPad }: { node: NodeStats; idPad: number }) {
   if (!node.snapshot) {
     return (
-      <Text color={DIM}>
-        {node.id}: unavailable {node.error ? `(${node.error})` : ""}
+      <Text>
+        <Text color={DIM}>{node.id.padEnd(idPad)} </Text>
+        <Text color={TRACK}>{BAR_CH.repeat(BAR_WIDTH)}</Text>
+        <Text color={DIM}> unavailable{node.error ? ` (${node.error})` : ""}</Text>
       </Text>
     );
   }
   const s = node.snapshot;
   const cpuTemp = s.temp.cpu_temp_avg;
   const gpuTemp = s.temp.gpu_temp_avg;
-  // RAM leads — this line renders inside the StatusPanel "memory" row.
   return (
     <Text>
-      <Text color={FG}>{node.id}</Text>
-      <Text color={DIM}> ram </Text>
-      <Text bold color={ramColor(s.memory.ram_usage, s.memory.ram_total)}>
-        {gb(s.memory.ram_usage)}/{gb(s.memory.ram_total)}GB
+      <Text color={FG}>{node.id.padEnd(idPad)} </Text>
+      <Bar pct={s.memory.ram_total > 0 ? s.memory.ram_usage / s.memory.ram_total : 0} />
+      <Text color={DIM}>
+        {" "}
+        {gbUsed(s.memory.ram_usage).padStart(4)} / {gbTotal(s.memory.ram_total)} GB
       </Text>
-      <Text color={DIM}> cpu </Text>
-      <Text bold>{(s.cpu_usage_pct * 100).toFixed(0)}%</Text>
-      <Text color={DIM}> gpu </Text>
-      <Text bold>{(s.gpu_usage[1] * 100).toFixed(0)}%</Text>
-      <Text color={DIM}> temp </Text>
-      <Text bold color={tempColor(Math.max(cpuTemp, gpuTemp))}>
+      <Text color={DIM}>
+        {"  · cpu "}
+        {(s.cpu_usage_pct * 100).toFixed(0)}% gpu {(s.gpu_usage[1] * 100).toFixed(0)}%{" · "}
+      </Text>
+      <Text color={tempColor(Math.max(cpuTemp, gpuTemp))}>
         {cpuTemp.toFixed(0)}°/{gpuTemp.toFixed(0)}°
       </Text>
     </Text>
@@ -65,28 +89,30 @@ export function StatsBar({
     if (combined.nodesUp === 0) {
       return <Text color={DIM}>stats unavailable — macmon unreachable on both nodes (/stats to retry)</Text>;
     }
-    // The headline row of the StatusPanel — values bold so RAM/CPU pressure
-    // reads at a glance (terminal cells can't grow, bold is the "big").
+    const pct = combined.ramTotalBytes > 0 ? combined.ramUsedBytes / combined.ramTotalBytes : 0;
     return (
       <Text>
-        <Text bold color={ramColor(combined.ramUsedBytes, combined.ramTotalBytes)}>
-          {gb(combined.ramUsedBytes)}/{gb(combined.ramTotalBytes)}GB
+        <Bar pct={pct} />
+        <Text color={DIM}>
+          {" "}
+          {gbUsed(combined.ramUsedBytes)} / {gbTotal(combined.ramTotalBytes)} GB{"  · cpu "}
+          {(combined.avgCpuPct * 100).toFixed(0)}%{" · "}
         </Text>
-        <Text color={DIM}> · cpu </Text>
-        <Text bold>{(combined.avgCpuPct * 100).toFixed(0)}%</Text>
-        <Text color={DIM}> · temp </Text>
-        <Text bold color={tempColor(Math.max(combined.maxCpuTempC, combined.maxGpuTempC))}>
+        <Text color={tempColor(Math.max(combined.maxCpuTempC, combined.maxGpuTempC))}>
           {combined.maxCpuTempC.toFixed(0)}°/{combined.maxGpuTempC.toFixed(0)}°
         </Text>
-        <Text color={DIM}> · </Text>
-        <Text bold>{combined.nodesUp}/{combined.nodesTotal} up</Text>
+        <Text color={DIM}>
+          {" · "}
+          {combined.nodesUp}/{combined.nodesTotal} up
+        </Text>
       </Text>
     );
   }
+  const idPad = Math.max(...nodes.map((n) => n.id.length), 2);
   return (
     <Box flexDirection="column">
       {nodes.map((n) => (
-        <NodeLine key={n.id} node={n} />
+        <NodeLine key={n.id} node={n} idPad={idPad} />
       ))}
     </Box>
   );

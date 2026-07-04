@@ -1,6 +1,6 @@
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { startSolo, startCluster, stopCurrentSession, type Session } from "../cluster/cluster";
+import { startSolo, startServer, startCluster, stopCurrentSession, type Session } from "../cluster/cluster";
 import type { ClusterConfig } from "../config/config";
 import { streamChat, ChatStreamError, type ChatMessage } from "../chat/chat";
 import { switchModel } from "../models/switchModel";
@@ -10,7 +10,7 @@ import { loadPrefs, savePrefs } from "../config/prefs";
 import { actualPct, formatSplit, parseSplit, type SplitTarget } from "../cluster/splitPolicy";
 import { estimatedCeilingGB, fitVerdict } from "../cluster/memory";
 import { windowMessages, estimateLines } from "../chat/chatWindow";
-import { DIM } from "./theme";
+import { BLUE, DIM } from "./theme";
 import { Header } from "./components/Header";
 import { StatusPanel } from "./components/StatusPanel";
 import { ChatView } from "./components/ChatView";
@@ -18,10 +18,10 @@ import { HelpView } from "./components/HelpView";
 import { ModelListView } from "./components/ModelListView";
 import { InputBar } from "./components/InputBar";
 
-const HEADER_LINES = 5; // Header.tsx: 2 wordmark rows, marginTop, version, hint
+const HEADER_LINES = 3; // Header.tsx: wordmark row, marginTop, subtitle+version row
 const PANEL_FIXED_LINES = 2; // StatusPanel model + server rows (memory rows counted per view)
 const INPUT_LINES = 3; // InputBar's round border adds a row above and below
-const HELP_LINES = 12; // HelpView.tsx rows + its marginBottom
+const HELP_LINES = 14; // HelpView.tsx rows + its marginBottom
 const PADDING_LINES = 2; // App's paddingY={1} top+bottom
 const SAFETY_MARGIN = 1; // avoid the very last row (some terminals clip it)
 
@@ -362,7 +362,14 @@ export function App({
     try {
       await stopCurrentSession(config, prev);
       const next = await start(config, model, (line) => dispatch({ type: "notice", text: line }));
-      const merged = { ...next, tookOverFromServer: next.tookOverFromServer || prev.tookOverFromServer };
+      // Carrying rules: switching back to server mode discharges a prior
+      // takeover (the LaunchAgent running again IS the restore) — and if the
+      // takeover session was the one that stopped it, we're re-attaching to
+      // shared infra, not creating our own, so quit must not boot it out.
+      const merged =
+        next.mode === "cluster"
+          ? { ...next, clusterOrigin: prev.tookOverFromServer ? ("attached" as const) : next.clusterOrigin }
+          : { ...next, tookOverFromServer: next.tookOverFromServer || prev.tookOverFromServer };
       dispatch({ type: "modelSwitched", session: merged });
       savePrefs({
         model: merged.model,
@@ -387,7 +394,10 @@ export function App({
     const modelArg = rest.join(" ") || undefined;
 
     if (!sub) {
-      dispatch({ type: "notice", text: `mode: ${describeMode(session)} · /mode solo | /mode cluster [<model>]` });
+      dispatch({
+        type: "notice",
+        text: `mode: ${describeMode(session)} · /mode solo | server | cluster [<model>]`,
+      });
       return;
     }
     if (sub === "solo") {
@@ -398,8 +408,16 @@ export function App({
       await replaceSession(session, session.model, startSolo);
       return;
     }
+    if (sub === "server") {
+      if (session.mode === "cluster") {
+        dispatch({ type: "notice", text: `already attached to ${config.server.id}'s server` });
+        return;
+      }
+      await replaceSession(session, session.model, startServer);
+      return;
+    }
     if (sub !== "cluster") {
-      dispatch({ type: "error", message: `unknown mode "${sub}" — /mode solo | /mode cluster [<model>]` });
+      dispatch({ type: "error", message: `unknown mode "${sub}" — /mode solo | server | cluster [<model>]` });
       return;
     }
 
@@ -459,6 +477,20 @@ export function App({
       case "mode":
         handleMode(arg);
         break;
+      case "copy": {
+        const lastReply = [...stateRef.current.history].reverse().find((m) => m.role === "assistant");
+        if (!lastReply) {
+          dispatch({ type: "notice", text: "nothing to copy yet — no reply in this session" });
+          break;
+        }
+        const proc = Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(lastReply.content, "utf8") });
+        if (proc.exitCode === 0) {
+          dispatch({ type: "notice", text: `⧉ copied last reply to clipboard (${lastReply.content.length} chars)` });
+        } else {
+          dispatch({ type: "error", message: "copy failed — pbcopy exited non-zero" });
+        }
+        break;
+      }
       case "clear":
         dispatch({ type: "clear" });
         break;
@@ -503,18 +535,40 @@ export function App({
   // 2-line empty-cache message).
   const modelListLines =
     state.modelList === null ? 0 : state.modelList.length === 0 ? 2 : state.modelList.length + 3;
+  // ⧉ hint under the transcript: only when there's a finished reply to copy.
+  const showCopyHint = !state.busy && state.history.some((m) => m.role === "assistant");
   const reserved =
     HEADER_LINES +
     panelLines +
     (state.showHelp ? HELP_LINES : 0) +
     modelListLines +
     (state.notice ? 1 : 0) +
+    (showCopyHint ? 1 : 0) +
     INPUT_LINES +
     PADDING_LINES +
     SAFETY_MARGIN;
   const chatBudget = Math.max(3, rows - reserved);
   const streamingLines = state.streaming !== null ? estimateLines(state.streaming, columns) + 1 : 0;
-  const { visible, hiddenCount } = windowMessages(state.history, columns, Math.max(1, chatBudget - streamingLines));
+  let { visible, hiddenCount } = windowMessages(state.history, columns, Math.max(1, chatBudget - streamingLines));
+  // Pin the question being answered when it scrolled out of the window:
+  // costs 2 rows (line + margin), so re-window with a smaller budget when it
+  // applies — long replies never orphan their prompt.
+  let lastUserIdx = -1;
+  for (let i = state.history.length - 1; i >= 0; i--) {
+    if (state.history[i].role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  let pinnedQuestion: string | null = null;
+  if (lastUserIdx >= 0 && lastUserIdx < state.history.length - visible.length) {
+    pinnedQuestion = state.history[lastUserIdx].content;
+    ({ visible, hiddenCount } = windowMessages(
+      state.history,
+      columns,
+      Math.max(1, chatBudget - streamingLines - 2),
+    ));
+  }
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
@@ -552,7 +606,21 @@ export function App({
         </Box>
       )}
 
-      <ChatView visible={visible} hiddenCount={hiddenCount} streaming={state.streaming} error={state.error} />
+      <ChatView
+        visible={visible}
+        hiddenCount={hiddenCount}
+        streaming={state.streaming}
+        error={state.error}
+        pinnedQuestion={pinnedQuestion}
+      />
+
+      {showCopyHint && (
+        <Box justifyContent="flex-end">
+          <Text color={DIM}>
+            ⧉ <Text color={BLUE}>/copy</Text> last reply
+          </Text>
+        </Box>
+      )}
 
       <InputBar
         disabled={state.busy || state.switching}

@@ -141,8 +141,12 @@ Two corrections layered on the time-share policy (both in
 `/mode` switches how the model is served, mid-session, without restarting
 the CLI. Three internal modes (`Mode` in `cluster.ts`):
 
-- **`cluster`** — Pattern A, attached to the server node's LaunchAgent
-  (the startup default when it's reachable).
+- **`cluster`** (shown as **server** in the UI, reachable via `/mode
+  server`) — Pattern A, attached to the server node's LaunchAgent (the
+  startup default when it's reachable). Switching back to it discharges a
+  prior takeover's restore-on-quit obligation — the LaunchAgent running
+  again *is* the restoration, and the session re-attaches as shared infra
+  rather than claiming ownership.
 - **`local`** (shown as **solo** in the UI) — whole model served by a
   process this CLI spawned on this Mac. Reached three ways, distinguished
   by `localOrigin`: an emergency `"fallback"` (server unreachable at

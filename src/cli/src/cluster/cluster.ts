@@ -176,6 +176,15 @@ export async function connectPreferPeer(
 export const startSolo = connectPreferPeer;
 
 /**
+ * /mode server — back to Pattern A: attach to (or bootstrap) the server
+ * node's LaunchAgent. Same logic as the startup connect(); the caller is
+ * responsible for tearing down whatever was serving before (see
+ * stopCurrentSession) and for clearing a prior takeover's restore-on-quit
+ * obligation, since the LaunchAgent running again IS the restoration.
+ */
+export const startServer = connect;
+
+/**
  * /mode cluster — Pattern B: stop whatever Pattern A serving is up, then
  * launch the model tensor-parallel across every node in the hostfile and
  * point the session at rank 0's HTTP endpoint. Refuses (with the node named)
