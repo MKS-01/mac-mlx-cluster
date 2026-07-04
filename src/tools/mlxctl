@@ -5,8 +5,9 @@ Commands:
   list                  List downloaded models (size + complete/incomplete)
   status <repo>         Show download progress for one repo (incomplete-aware)
   download <repo>       Download a model (refuses if one is already running)
-  remove <repo>         Delete a model from the cache
-  clean [repo]          Kill stale downloads, clear locks, drop partials
+  remove <repo>         Delete a model from the cache entirely, complete or not
+  clean [repo]          Kill stale downloads, clear locks, drop stale partial
+                        blobs only — never deletes a repo's complete files
   run <repo> [args...]  Launch mlx_lm.chat on a model (passes extra args through)
   search <query>        Search mlx-community on the Hub
   meminfo [repo]        Show this Mac's MLX wired-memory ceiling (+ fit verdict for repo)
@@ -220,14 +221,35 @@ def cmd_remove(args):
     print(grn("done."))
 
 def cmd_clean(args):
-    target = args[0] if args else "Qwen|Llama|mlx|model"  # broad if none given
     if args:
-        repo = args[0]
+        repo = resolve(args[0])
+        d = repo_to_dir(repo)
+        if not d.exists():
+            die(f"not in cache: {repo}")
         subprocess.run(["pkill", "-f", f"hf download.*{repo}"])
-        d = repo_to_dir(resolve(repo))
-        subprocess.run(["rm", "-rf", str(d)])
-        subprocess.run(["rm", "-rf", str(LOCKS / d.name)])
-        print(grn(f"cleaned {repo}: killed downloads, removed partial + locks ✓"))
+        # Only ever remove stale partial data (leftover .incomplete blobs from
+        # earlier failed/retried attempts — the hf-xet backend starts a fresh
+        # temp file per attempt instead of resuming, so these accumulate) and
+        # locks. Never touch a complete snapshot's files — that's what
+        # `mlxctl remove` is for, as a deliberate, separate action.
+        blobs = d / "blobs"
+        incompletes = list(blobs.glob("*.incomplete")) if blobs.exists() else []
+        freed = sum(f.stat().st_size for f in incompletes)
+        for f in incompletes:
+            f.unlink(missing_ok=True)
+        lock_dir = LOCKS / d.name
+        had_locks = lock_dir.exists()
+        subprocess.run(["rm", "-rf", str(lock_dir)])
+        print(grn(
+            f"cleaned {repo}: removed {len(incompletes)} stale partial file(s) "
+            f"({human(freed)})" + (", cleared locks" if had_locks else "") + " ✓"
+        ))
+        status, _, _ = completeness(d)
+        if status != "complete":
+            print(dim(
+                f"  still incomplete — re-run 'mlxctl download {repo}' to finish it, "
+                f"or 'mlxctl remove {repo}' to delete it entirely"
+            ))
         return
     # global tidy: kill nothing, just clear stale locks + report incompletes
     killed = subprocess.run(["pkill", "-0", "-f", "hf download"],

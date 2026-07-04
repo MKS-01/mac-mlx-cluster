@@ -57,7 +57,7 @@ import sys; sys.path.insert(0, '.venvs/mlx/lib/python3.12/site-packages')
 \"" 2>/dev/null  # (usually unnecessary — mlxctl reads the cache dir directly)
 
 ssh "$TARGET" '~/.venvs/mlx/bin/python /path/to/mlxctl status <repo>' \
-  2>/dev/null || echo "mlxctl not present on target — copy src/mlxctl over or just confirm the directory landed:"
+  2>/dev/null || echo "mlxctl not present on target — copy src/tools/mlxctl over or just confirm the directory landed:"
 ssh "$TARGET" "du -sh ~/.cache/huggingface/hub/$REPO_DIR"
 ```
 

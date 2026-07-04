@@ -1,5 +1,5 @@
 // Streaming client for an OpenAI-compatible /v1/chat/completions endpoint —
-// same protocol as cluster/chat.py, adapted to fetch's ReadableStream so it
+// same protocol as tools/chat.py, adapted to fetch's ReadableStream so it
 // can drive an Ink UI incrementally instead of printing to stdout.
 
 export interface ChatMessage {

@@ -40,7 +40,7 @@ count, and forcing an uneven split via multiple ranks per GPU caused Metal
 timeouts on the M1 in testing. This is why the CLI's wear-leveling feature
 (below) balances *which Mac serves whole*, not *how the model is split*.
 
-## `src/mlxctl` — model cache manager
+## `src/tools/mlxctl` — model cache manager
 
 Standalone Python script (no deps beyond `huggingface_hub`), symlinked into
 `~/.venvs/mlx/bin`. Manages `~/.cache/huggingface/hub` with incomplete-aware
@@ -223,14 +223,17 @@ you ──▶ mlx-cluster-cli (wherever it runs)
 ## Repo layout
 
 - `doc/` — this file plus the guides linked above.
-- `src/mlxctl`, `src/requirements*.txt` — Python cache-management tool.
-- `src/cluster/` — distributed-MLX smoke-test scripts and example configs
-  (hostfile, LaunchAgent plist) referenced by `CLUSTER_SETUP.md`.
+- `src/tools/` — the Python side: `mlxctl` (cache manager), `dist_bench.py`
+  (distributed smoke test + tensor-parallel benchmark, run under
+  `mlx.launch`), `chat.py` (zero-dependency debugging/testing client for
+  poking an `mlx_lm.server` endpoint — not a chat product, that's `src/cli/`
+  below), the example configs (`hostfile.example.json`,
+  `mlx-server.example.plist`, `wired-limit.example.plist`) referenced by
+  `CLUSTER_SETUP.md`, and `requirements*.txt`.
 - `src/cli/` — the TypeScript chat client described above, organized by
   domain under `src/cli/src/`: `config/` (static + dynamic config),
   `net/` (ssh/server/macmon — talking to the Macs), `cluster/` (mode
-  decision + wear-leveling policy — unrelated to the Python `src/cluster/`
-  above despite the shared name), `models/` (cache listing + `/model`
+  decision + wear-leveling policy), `models/` (cache listing + `/model`
   switching), `chat/` (SSE streaming + transcript windowing), `ui/`
   (Ink `app.tsx`, theme, and `components/`). `index.tsx` is the entry point.
 - `CLAUDE.md`, `README.md`, `LICENSE` — repo root.

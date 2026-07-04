@@ -35,7 +35,7 @@ export function rankZeroIp(hostfilePath: string): string {
   const path = expandTilde(hostfilePath);
   if (!existsSync(path)) {
     throw new DistributedLaunchError(
-      `hostfile not found at ${path} — copy src/cluster/hostfile.example.json there (see CLUSTER_SETUP.md §5)`,
+      `hostfile not found at ${path} — copy src/tools/hostfile.example.json there (see CLUSTER_SETUP.md §5)`,
     );
   }
   let entries: unknown;
@@ -48,7 +48,7 @@ export function rankZeroIp(hostfilePath: string): string {
   const ip = first && typeof first === "object" ? (first as { ips?: string[] }).ips?.[0] : undefined;
   if (!ip) {
     throw new DistributedLaunchError(
-      `hostfile ${path} has no ips[] on its first entry — expected the shape in src/cluster/hostfile.example.json`,
+      `hostfile ${path} has no ips[] on its first entry — expected the shape in src/tools/hostfile.example.json`,
     );
   }
   return ip;

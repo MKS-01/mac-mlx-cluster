@@ -63,5 +63,5 @@ file (should be `~` or a config value instead).
 - Don't delete cached models just because they're large — that's a
   `mlxctl remove <repo>` decision for the user to make, not an automatic
   cleanup action.
-- Don't touch `src/cluster/hostfile.json` (gitignored, real IPs) — only
+- Don't touch `src/tools/hostfile.json` (gitignored, real IPs) — only
   the checked-in `.example` files are repo content.
