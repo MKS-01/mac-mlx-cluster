@@ -5,10 +5,19 @@
 ![Python: 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)
 ![Powered by MLX](https://img.shields.io/badge/powered%20by-MLX-orange)
 
-Tooling and guides for running [MLX](https://github.com/ml-explore/mlx) LLMs locally on
-Apple Silicon — on a single Mac, or distributed across a two-Mac cluster over Thunderbolt.
-Everything here is verified against a real setup (M1 Pro + M5 Pro), not just theory — see
-[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) for the exact commands that worked.
+It started on a weekend out of curiosity: could an M-series Mac actually run a
+real LLM locally, no cloud involved? `mlx_lm.chat` said yes. That led to a
+second question — could two idle Macs do more together than either one
+alone? A Thunderbolt cable, a lot of trial and error, and a few very
+literal "why did that just hang for two minutes" debugging sessions later,
+the answer was also yes.
+
+This repo is what came out of that weekend, kept going: tooling and guides
+for running [MLX](https://github.com/ml-explore/mlx) LLMs on Apple Silicon —
+on a single Mac, or distributed across a two-Mac cluster over Thunderbolt.
+Nothing here is theoretical — every command in
+[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) is one that was actually
+run, against a real M1 Pro + M5 Pro sitting on the same desk.
 
 ## What's in here
 
@@ -139,8 +148,9 @@ For `src/cli/` (the TypeScript chat client), see [`src/cli/README.md`](./src/cli
 
 ## Contributing
 
-Issues and PRs are welcome. This started as a personal hobby setup and is verified
-end-to-end only on the hardware in [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md#hardware-topology)
+Issues and PRs are welcome. This is still, at heart, a weekend curiosity
+project — verified end-to-end only on the hardware in
+[`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md#hardware-topology)
 (M1 Pro 32GB + M5 Pro 48GB over Thunderbolt 4) — if you run it on a different
 Apple Silicon combination, a PR noting what worked or didn't is especially useful.
 For non-trivial changes to `src/cli/`, read `doc/ARCHITECTURE.md` first; it explains
