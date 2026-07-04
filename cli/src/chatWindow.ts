@@ -1,11 +1,25 @@
 import type { ChatMessage } from "./chat";
 
-const LABEL_WIDTH = 7; // "you  " / "model  " prefix, roughly
+const GUTTER_WIDTH = 4; // ChatView's 2-col marker gutter + App's paddingX
+
+/**
+ * Whitespace cleanup applied to every rendered message (ChatView imports
+ * this too, so line estimates below stay in sync with what's drawn):
+ * models love trailing spaces and 3+ blank-line runs, which waste rows in a
+ * height-budgeted transcript.
+ */
+export function cleanBody(text: string): string {
+  return text
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 /** Rough wrapped-line count for a message body at a given terminal width. */
 export function estimateLines(text: string, columns: number): number {
-  const width = Math.max(10, columns - LABEL_WIDTH);
-  const body = text.length > 0 ? text : " ";
+  const width = Math.max(10, columns - GUTTER_WIDTH);
+  const body = cleanBody(text) || " ";
   return body.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil((line.length || 1) / width)), 0);
 }
 

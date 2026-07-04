@@ -1,20 +1,33 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { BLUE, DIM, FG } from "../theme";
+import { version } from "../../package.json";
 
-// Letter-spaced wordmark — a simple, safe stand-in for readback's block-art
-// mark (hand-drawn Unicode block letters are easy to mangle across fonts).
-// Two-tone: MLX in white, CLUSTER in blue.
-export function Header({ mode, model }: { mode: "cluster" | "local"; model: string }) {
+// Half-block wordmark — plain Unicode block elements, renders in any mono
+// font (same lettering style as readback-cli's Header). "MLX" in white,
+// "CLUSTER" in the single static blue accent (never recolored by state).
+const MARK: Array<[mlx: string, cluster: string]> = [
+  ["█▀▄▀█ █   ▀▄▀  ", "█▀▀ █   █ █ █▀ ▀█▀ █▀▀ █▀█"],
+  ["█ ▀ █ █▄▄ █ █  ", "█▄▄ █▄▄ █▄█ ▄█  █  ██▄ █▀▄"],
+];
+
+export function Header() {
   return (
     <Box flexDirection="column">
-      <Text>
-        <Text color={FG} bold>M L X</Text>
-        <Text color={BLUE} bold>  C L U S T E R</Text>
-      </Text>
-      <Text color={DIM}>two-Mac MLX inference cluster</Text>
+      {MARK.map(([mlx, cluster], i) => (
+        <Box key={i}>
+          <Text color={FG}>{mlx}</Text>
+          <Text color={BLUE}>{cluster}</Text>
+        </Box>
+      ))}
+      <Box marginTop={1}>
+        <Text color={DIM}>two-Mac MLX inference cluster · </Text>
+        <Text color={BLUE}>v{version}</Text>
+      </Box>
       <Text color={DIM}>
-        {mode === "cluster" ? "cluster mode" : "local mode (fallback)"} · {model}
+        chat with the served model · <Text color={BLUE}>/model</Text> ·{" "}
+        <Text color={BLUE}>/stats</Text> · <Text color={BLUE}>/clear</Text> ·{" "}
+        <Text color={BLUE}>/help</Text>
       </Text>
     </Box>
   );

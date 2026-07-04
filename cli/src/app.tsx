@@ -4,17 +4,21 @@ import type { Session } from "./cluster";
 import type { ClusterConfig } from "./config";
 import { streamChat, ChatStreamError, type ChatMessage } from "./chat";
 import { switchModel } from "./switchModel";
+import { listServerModels, resolveModel, type CachedModel } from "./models";
 import { fetchNodeStats, combineStats, type NodeStats } from "./macmon";
 import { loadPrefs, savePrefs } from "./prefs";
 import { windowMessages, estimateLines } from "./chatWindow";
 import { DIM } from "./theme";
 import { Header } from "./components/Header";
-import { StatsBar } from "./components/StatsBar";
+import { StatusPanel } from "./components/StatusPanel";
 import { ChatView } from "./components/ChatView";
 import { HelpView } from "./components/HelpView";
+import { ModelListView } from "./components/ModelListView";
 import { InputBar } from "./components/InputBar";
 
-const HEADER_LINES = 3; // Header.tsx: wordmark, tagline, mode/model
+const HEADER_LINES = 5; // Header.tsx: 2 wordmark rows, marginTop, version, hint
+const PANEL_FIXED_LINES = 2; // StatusPanel model + server rows (memory rows counted per view)
+const INPUT_LINES = 3; // InputBar's round border adds a row above and below
 const HELP_LINES = 7; // HelpView.tsx rows + its marginBottom
 const PADDING_LINES = 2; // App's paddingY={1} top+bottom
 const SAFETY_MARGIN = 1; // avoid the very last row (some terminals clip it)
@@ -27,6 +31,8 @@ interface State {
   error: string | null;
   notice: string | null;
   showHelp: boolean;
+  modelList: CachedModel[] | null;
+  switching: boolean;
   statsView: "combined" | "split";
   nodes: NodeStats[];
   quitting: boolean;
@@ -39,6 +45,8 @@ type Action =
   | { type: "error"; message: string }
   | { type: "notice"; text: string | null }
   | { type: "toggleHelp" }
+  | { type: "modelList"; list: CachedModel[] | null }
+  | { type: "switching"; on: boolean }
   | { type: "clear" }
   | { type: "setStatsView"; view: "combined" | "split" }
   | { type: "stats"; nodes: NodeStats[] }
@@ -55,6 +63,7 @@ function reducer(state: State, action: Action): State {
         busy: true,
         error: null,
         notice: null,
+        modelList: null,
       };
     case "token":
       return { ...state, streaming: (state.streaming ?? "") + action.chunk };
@@ -70,9 +79,13 @@ function reducer(state: State, action: Action): State {
     case "notice":
       return { ...state, notice: action.text, error: null };
     case "toggleHelp":
-      return { ...state, showHelp: !state.showHelp, notice: null, error: null };
+      return { ...state, showHelp: !state.showHelp, notice: null, error: null, modelList: null };
+    case "modelList":
+      return { ...state, modelList: action.list, showHelp: false, error: null };
+    case "switching":
+      return { ...state, switching: action.on };
     case "clear":
-      return { ...state, history: [], streaming: null, error: null, notice: "transcript cleared" };
+      return { ...state, history: [], streaming: null, error: null, notice: "transcript cleared", modelList: null };
     case "setStatsView":
       return { ...state, statsView: action.view };
     case "stats":
@@ -105,6 +118,8 @@ export function App({
     error: null,
     notice: null,
     showHelp: false,
+    modelList: null,
+    switching: false,
     statsView: prefs.statsView ?? "combined",
     nodes: [],
     quitting: false,
@@ -176,15 +191,57 @@ export function App({
     }
   };
 
+  // /model — list what's cached on the serving node; /model <arg> — resolve
+  // arg against that cache (mlxctl-style substring) and switch. The cache is
+  // the gate on purpose: the server runs with HF_HUB_OFFLINE=1, so switching
+  // to an uncached repo would just break it on restart.
   const handleModelSwitch = async (arg: string | undefined) => {
+    const session = stateRef.current.session;
+    const cacheNode = session.mode === "cluster" ? config.server.id : "this Mac";
+    dispatch({ type: "notice", text: `reading model cache on ${cacheNode}…` });
+    const listRes = await listServerModels(config, session);
+
     if (!arg) {
-      dispatch({ type: "notice", text: `model is ${state.session.model} — /model <repo> to switch` });
+      if (!listRes.ok) {
+        dispatch({ type: "error", message: listRes.message });
+        return;
+      }
+      dispatch({ type: "modelList", list: listRes.models });
+      dispatch({ type: "notice", text: null });
       return;
     }
-    dispatch({ type: "notice", text: `switching model to ${arg}…` });
-    const result = await switchModel(config, state.session, arg, (line) =>
+
+    let target = arg;
+    if (listRes.ok) {
+      const resolved = resolveModel(arg, listRes.models);
+      if (resolved.kind === "none") {
+        dispatch({
+          type: "error",
+          message: `no cached model on ${cacheNode} matches "${arg}" — /model to list, or download it there first`,
+        });
+        return;
+      }
+      if (resolved.kind === "ambiguous") {
+        dispatch({ type: "error", message: `"${arg}" matches: ${resolved.repos.join(", ")} — be more specific` });
+        return;
+      }
+      target = resolved.repo;
+    }
+    // cache unreadable (listRes not ok): fall through with arg as typed
+    // rather than blocking the switch on a stats-style nicety.
+
+    if (target === session.model) {
+      dispatch({ type: "notice", text: `already serving ${target}` });
+      return;
+    }
+
+    dispatch({ type: "modelList", list: null });
+    dispatch({ type: "switching", on: true });
+    dispatch({ type: "notice", text: `switching model to ${target}…` });
+    const result = await switchModel(config, session, target, (line) =>
       dispatch({ type: "notice", text: line }),
     );
+    dispatch({ type: "switching", on: false });
     if (result.ok && result.session) {
       dispatch({ type: "modelSwitched", session: result.session });
       savePrefs({ model: result.session.model, statsView: stateRef.current.statsView });
@@ -248,16 +305,23 @@ export function App({
 
   const columns = stdout?.columns ?? 80;
   const rows = stdout?.rows ?? 24;
-  // Stats bar height: 1 line combined, or 1 per node in split view (+ its
-  // own marginTop/marginBottom box = +2). Recomputed every render (stats
-  // poll, keystroke, token) so the budget always matches the current view.
-  const statsLines = (state.statsView === "combined" ? 1 : Math.max(1, state.nodes.length)) + 2;
+  // StatusPanel height: fixed model+server rows, plus 1 memory line combined
+  // or 1 per node in split view, plus its marginTop/marginBottom box (+2).
+  // Recomputed every render (stats poll, keystroke, token) so the budget
+  // always matches the current view.
+  const panelLines =
+    PANEL_FIXED_LINES + (state.statsView === "combined" ? 1 : Math.max(1, state.nodes.length)) + 2;
+  // ModelListView: heading + one row per model + hint + marginBottom (or the
+  // 2-line empty-cache message).
+  const modelListLines =
+    state.modelList === null ? 0 : state.modelList.length === 0 ? 2 : state.modelList.length + 3;
   const reserved =
     HEADER_LINES +
-    statsLines +
+    panelLines +
     (state.showHelp ? HELP_LINES : 0) +
+    modelListLines +
     (state.notice ? 1 : 0) +
-    1 + // input bar
+    INPUT_LINES +
     PADDING_LINES +
     SAFETY_MARGIN;
   const chatBudget = Math.max(3, rows - reserved);
@@ -266,12 +330,26 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Header mode={state.session.mode} model={state.session.model} />
+      <Header />
       <Box marginTop={1} marginBottom={1}>
-        <StatsBar view={state.statsView} nodes={state.nodes} combined={combined} />
+        <StatusPanel session={state.session} view={state.statsView} nodes={state.nodes} combined={combined} />
       </Box>
 
       {state.showHelp && <HelpView />}
+      {state.modelList !== null && (
+        <ModelListView
+          models={state.modelList}
+          current={state.session.model}
+          nodeId={state.session.mode === "cluster" ? config.server.id : "this Mac"}
+          // fit is judged against the RAM of whichever node serves: nodes is
+          // [server, peer], and in local mode "this Mac" is the peer (the
+          // dev machine falls back to serving itself).
+          ramGB={(() => {
+            const n = state.session.mode === "cluster" ? state.nodes[0] : state.nodes[1];
+            return n?.snapshot ? n.snapshot.memory.ram_total / 1024 ** 3 : null;
+          })()}
+        />
+      )}
       {state.notice && (
         <Box marginBottom={1}>
           <Text color={DIM}>{state.notice}</Text>
@@ -280,7 +358,11 @@ export function App({
 
       <ChatView visible={visible} hiddenCount={hiddenCount} streaming={state.streaming} error={state.error} />
 
-      <InputBar disabled={state.busy} onSubmit={handleSubmit} />
+      <InputBar
+        disabled={state.busy || state.switching}
+        busyText={state.switching ? "switching model… (a few seconds of downtime)" : undefined}
+        onSubmit={handleSubmit}
+      />
     </Box>
   );
 }
