@@ -9,7 +9,7 @@ adapted for Thunderbolt 4 (see [Backend choice](#backend-choice-ring-not-jaccl))
 
 Throughout, **node A** is the Mac you launch from (rank 0) and **node B** is the
 other Mac (rank 1). Adjust usernames/IPs to your machines, and run the command
-blocks **from the repo root** (paths like `cluster/ring_test.py` are
+blocks **from the repo root** (paths like `src/cluster/ring_test.py` are
 repo-relative).
 
 ## 1. Physical link
@@ -75,7 +75,7 @@ Everything below assumes the venv lives at `~/.venvs/mlx` on both machines.
 
 ## 5. Hostfile
 
-Copy [`hostfile.example.json`](./hostfile.example.json) to `~/.mlx/tb-ring-hostfile.json`
+Copy [`hostfile.example.json`](../src/cluster/hostfile.example.json) to `~/.mlx/tb-ring-hostfile.json`
 and edit the user/IPs. The first entry is rank 0:
 
 ```json
@@ -92,9 +92,9 @@ path on every node. Put shared scripts somewhere identical on both Macs
 (e.g. `~/.mlx/`):
 
 ```sh
-mkdir -p ~/.mlx && cp cluster/ring_test.py ~/.mlx/
+mkdir -p ~/.mlx && cp src/cluster/ring_test.py ~/.mlx/
 ssh <user>@10.0.0.1 'mkdir -p ~/.mlx'
-scp cluster/ring_test.py <user>@10.0.0.1:.mlx/
+scp src/cluster/ring_test.py <user>@10.0.0.1:.mlx/
 
 mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
     --python "$HOME/.venvs/mlx/bin/python" "$HOME/.mlx/ring_test.py"
@@ -139,7 +139,7 @@ mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
     --model <repo> --max-tokens 2048
 ```
 
-For a scripted test, use [`tp_test.py`](./tp_test.py) (uses the `sharded_load`
+For a scripted test, use [`tp_test.py`](../src/cluster/tp_test.py) (uses the `sharded_load`
 API and prints each rank's memory + tok/s; copy it to `~/.mlx/` on both nodes
 first):
 
@@ -162,14 +162,14 @@ uneven splits (55/45, 60/40): ranks always get equal shares, model dims must
 divide by the rank count, and stacking multiple ranks on one GPU to fake a
 ratio caused Metal GPU timeouts on the M1. Pattern A is the better answer.
 
-Install [`mlx-server.example.plist`](./mlx-server.example.plist) on the server
+Install [`mlx-server.example.plist`](../src/cluster/mlx-server.example.plist) on the server
 Mac — **first edit the file**: replace `USERNAME` (3 places) and set your model
 and bind IP/port. Then:
 
 ```sh
-# edit cluster/mlx-server.example.plist before copying!
+# edit src/cluster/mlx-server.example.plist before copying!
 ssh <user>@10.0.0.1 'mkdir -p ~/Library/LaunchAgents'
-scp cluster/mlx-server.example.plist <user>@10.0.0.1:Library/LaunchAgents/com.mlx-server.plist
+scp src/cluster/mlx-server.example.plist <user>@10.0.0.1:Library/LaunchAgents/com.mlx-server.plist
 ssh <user>@10.0.0.1 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mlx-server.plist'
 ```
 
@@ -206,8 +206,8 @@ Or point any OpenAI SDK at `base_url="http://10.0.0.1:8080/v1"` (any API key),
 or chat interactively with the zero-dependency client in this repo:
 
 ```sh
-python3 cluster/chat.py                # default server http://10.0.0.1:8080
-python3 cluster/chat.py --url http://localhost:8080   # or set $MLX_SERVER_URL
+python3 src/cluster/chat.py                # default server http://10.0.0.1:8080
+python3 src/cluster/chat.py --url http://localhost:8080   # or set $MLX_SERVER_URL
 ```
 
 ## Backend choice: ring, not jaccl

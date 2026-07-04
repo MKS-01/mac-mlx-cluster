@@ -1,6 +1,12 @@
 import type { ClusterConfig } from "./config";
 import { isServerUp, pollUntilHealthy, startLocalServer, stopLocalServer, type LocalServerHandle } from "./server";
-import { sshReachable, bootstrapRemote, bootoutRemote, bootoutRemoteSync } from "./ssh";
+import {
+  sshReachable,
+  bootstrapRemote,
+  bootstrapRemoteSync,
+  bootoutRemote,
+  bootoutRemoteSync,
+} from "./ssh";
 
 export type Mode = "cluster" | "local";
 // cluster: "attached" — server was already running, ours to use but not to stop
@@ -16,6 +22,11 @@ export interface Session {
   // true if the designated server node answered SSH (needed for /model switch in cluster mode)
   serverSshOk: boolean;
   clusterOrigin: ClusterOrigin;
+  // true only for connectPreferPeer() sessions that stopped the server node's
+  // always-on LaunchAgent to enforce a wear-leveling split (see
+  // splitPolicy.ts) — disconnect() restarts it so Pattern A's "always-on"
+  // invariant holds again once this session ends.
+  tookOverFromServer: boolean;
 }
 
 /**
@@ -74,11 +85,64 @@ export async function connect(
       localHandle: null,
       serverSshOk,
       clusterOrigin,
+      tookOverFromServer: false,
     };
   }
 
   const handle = await startLocalServer(config.venvPath, model, config.localApiPort, onStatus);
-  return { mode: "local", base: handle.base, model, localHandle: handle, serverSshOk: false, clusterOrigin: null };
+  return {
+    mode: "local",
+    base: handle.base,
+    model,
+    localHandle: handle,
+    serverSshOk: false,
+    clusterOrigin: null,
+    tookOverFromServer: false,
+  };
+}
+
+/**
+ * Wear-leveling variant of connect(): deliberately serves from the peer
+ * (wherever this CLI is running) instead of the server node, even if the
+ * server node is currently up — stopping it first so its GPU actually gets
+ * a rest instead of sitting loaded-but-idle. Used when splitPolicy.ts
+ * recommends the peer's turn and the user confirms at startup (see
+ * index.tsx). Always succeeds or throws the same way startLocalServer does;
+ * failing to stop the server node is logged but non-fatal, since serving
+ * locally is the actual goal.
+ */
+export async function connectPreferPeer(
+  config: ClusterConfig,
+  preferredModel: string | undefined,
+  onStatus: (line: string) => void,
+): Promise<Session> {
+  const { server } = config;
+  const model = preferredModel ?? config.defaultModel;
+  let tookOverFromServer = false;
+
+  const up = await isServerUp(server.ip, server.apiPort, 2500);
+  if (up) {
+    onStatus(`stopping ${server.id}'s server to free it up for this session…`);
+    const sshOk = await sshReachable(server.sshUser, server.ip, 3000);
+    if (sshOk) {
+      const result = await bootoutRemote(server.sshUser, server.ip, server.serviceLabel);
+      if (result.ok) tookOverFromServer = true;
+      else onStatus(`${result.message} — continuing to serve locally anyway`);
+    } else {
+      onStatus(`can't SSH to ${server.id} to stop it — continuing to serve locally anyway`);
+    }
+  }
+
+  const handle = await startLocalServer(config.venvPath, model, config.localApiPort, onStatus);
+  return {
+    mode: "local",
+    base: handle.base,
+    model,
+    localHandle: handle,
+    serverSshOk: false,
+    clusterOrigin: null,
+    tookOverFromServer,
+  };
 }
 
 /** Normal quit path — awaited, can do the SSH round trip to bootout. */
@@ -86,6 +150,15 @@ export async function disconnect(config: ClusterConfig, session: Session | null)
   if (!session) return;
   if (session.mode === "local") {
     stopLocalServer(session.localHandle);
+    if (session.tookOverFromServer) {
+      const result = await bootstrapRemote(
+        config.server.sshUser,
+        config.server.ip,
+        config.server.plistPath,
+        config.server.serviceLabel,
+      );
+      if (!result.ok) console.error(`could not restart ${config.server.id}'s server: ${result.message}`);
+    }
     return;
   }
   if (session.clusterOrigin === "started") {
@@ -106,6 +179,9 @@ export function disconnectSync(config: ClusterConfig, session: Session | null): 
   if (!session) return;
   if (session.mode === "local") {
     stopLocalServer(session.localHandle);
+    if (session.tookOverFromServer) {
+      bootstrapRemoteSync(config.server.sshUser, config.server.ip, config.server.plistPath, config.server.serviceLabel);
+    }
     return;
   }
   if (session.clusterOrigin === "started") {

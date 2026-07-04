@@ -12,10 +12,14 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.ruff_cache/
 
 # Local logs / scratch
 *.log
 *.err
 
 # Real cluster hostfile (contains usernames/IPs) — commit only the .example
-cluster/hostfile.json
+src/cluster/hostfile.json
+
+# Personal reference screenshots / scratch — not for the repo
+sample/

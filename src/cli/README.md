@@ -1,8 +1,8 @@
 # mlx-cluster-cli
 
 Terminal chat client + lifecycle manager for the two-Mac MLX cluster
-(see [`../cluster/CLUSTER_SETUP.md`](../cluster/CLUSTER_SETUP.md) and
-[`../cluster/CLI_PLAN.md`](../cluster/CLI_PLAN.md)). Bun + TypeScript + Ink,
+(see [`../../doc/CLUSTER_SETUP.md`](../../doc/CLUSTER_SETUP.md) and
+[`../../doc/CLI_PLAN.md`](../../doc/CLI_PLAN.md)). Bun + TypeScript + Ink,
 built following the same shell/lifecycle pattern as `readback-cli`.
 
 ## What it does

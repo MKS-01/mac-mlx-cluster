@@ -63,6 +63,14 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
   const decoder = new TextDecoder();
   let buf = "";
   const pieces: string[] = [];
+  // Reasoning models (e.g. Qwen3.6's thinking mode) stream their internal
+  // reasoning under delta.reasoning, separate from delta.content — mlx_lm.
+  // server counts both against max_tokens, so a verbose thinking pass can
+  // exhaust the whole budget before any content is ever emitted. Track
+  // whether that happened so it surfaces as a clear error instead of a
+  // silently empty reply.
+  let sawReasoning = false;
+  let finishReason: string | null = null;
 
   const readWithTimeout = async () => {
     const to = setTimeout(() => reader.cancel("idle timeout").catch(() => {}), idleTimeoutMs);
@@ -100,7 +108,10 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
         } catch {
           continue; // keep-alive or partial fragment — ignore
         }
-        const delta: string | undefined = parsed?.choices?.[0]?.delta?.content;
+        const choice = parsed?.choices?.[0];
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        if (choice?.delta?.reasoning) sawReasoning = true;
+        const delta: string | undefined = choice?.delta?.content;
         if (delta) {
           pieces.push(delta);
           onToken(delta);
@@ -115,5 +126,14 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
     }
   }
 
-  return pieces.join("");
+  const reply = pieces.join("");
+  if (!reply) {
+    if (sawReasoning && finishReason === "length") {
+      throw new ChatStreamError(
+        `model spent its whole token budget thinking and never got to an answer (max_tokens=${maxTokens}) — try again, or ask something it needs to think less about`,
+      );
+    }
+    throw new ChatStreamError("model returned an empty reply — try again");
+  }
+  return reply;
 }
