@@ -1,0 +1,20 @@
+{
+  "server": {
+    "id": "m1",
+    "ip": "10.0.0.1",
+    "sshUser": "<user>",
+    "macmonPort": 9090,
+    "apiPort": 8080,
+    "plistPath": "~/Library/LaunchAgents/com.mlx-server.plist",
+    "serviceLabel": "com.mlx-server"
+  },
+  "peer": {
+    "id": "m5",
+    "ip": "10.0.0.2",
+    "sshUser": "<user>",
+    "macmonPort": 9090
+  },
+  "defaultModel": "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
+  "localApiPort": 8080,
+  "venvPath": "/Users/<user>/.venvs/mlx"
+}

@@ -1,0 +1,23 @@
+{
+  "name": "mlx-cluster-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.tsx",
+    "start": "bun run src/index.tsx",
+    "build": "bun build ./src/index.tsx --compile --outfile dist/mlx-cluster-cli",
+    "setup": "./install.sh"
+  },
+  "dependencies": {
+    "ink": "^6.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/react": "^19.0.0",
+    "react-devtools-core": "^7.0.1",
+    "typescript": "^5.6.0"
+  }
+}
