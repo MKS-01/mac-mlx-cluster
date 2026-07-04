@@ -7,10 +7,10 @@
 Run LLMs on Apple Silicon with [MLX](https://github.com/ml-explore/mlx) — on one Mac,
 or sharded across two when the model is too big for either.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-![Platform: Apple Silicon](https://img.shields.io/badge/platform-Apple%20Silicon-black?logo=apple)
-![Python: 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)
-![Powered by MLX](https://img.shields.io/badge/powered%20by-MLX-orange)
+[![License: MIT](https://img.shields.io/badge/License-MIT-orange?style=flat-square&labelColor=000000)](./LICENSE)
+![Platform: Apple Silicon](https://img.shields.io/badge/Platform-Apple%20Silicon-orange?style=flat-square&labelColor=000000&logo=apple&logoColor=white)
+![Python: 3.12+](https://img.shields.io/badge/Python-3.12%2B-orange?style=flat-square&labelColor=000000&logo=python&logoColor=white)
+[![Powered by MLX](https://img.shields.io/badge/Powered%20by-MLX-orange?style=flat-square&labelColor=000000)](https://github.com/ml-explore/mlx)
 
 <!-- Real screenshot: save as doc/img/cli.png and change the src below -->
 <img src="./doc/img/cli.svg" alt="mlx-cluster-cli — live memory bars, model switching, and serving-mode control in one terminal session" width="720">
