@@ -13,6 +13,7 @@ Apple Silicon — on a single Mac, or distributed across a two-Mac cluster.
 | File | What it is |
 |------|------------|
 | [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) | System-level reference: topology, data flow, and the CLI's internal design |
+| [`doc/ROADMAP.md`](./doc/ROADMAP.md) | Planned but not-yet-built work |
 | [`src/mlxctl`](./src/mlxctl) | A colorful CLI to list, download, inspect, and clean cached MLX/Hugging Face models |
 | [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) | Get `mlx-lm` running and chat with a model in a few commands |
 | [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) | Verified two-Mac cluster walkthrough: Thunderbolt bridge, SSH, hostfile, distributed smoke tests, and an always-on model server |
