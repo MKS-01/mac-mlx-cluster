@@ -30,7 +30,7 @@ export async function runRemote(
 ): Promise<RemoteResult> {
   let proc: ReturnType<typeof Bun.spawn>;
   try {
-    proc = Bun.spawn(["ssh", ...SSH_OPTS, `${user}@${ip}`, command], {
+    proc = Bun.spawn(["ssh", ...SSH_OPTS, "--", `${user}@${ip}`, command], {
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -173,7 +173,7 @@ export async function bootoutRemote(
 export function bootoutRemoteSync(user: string, ip: string, serviceLabel: string): void {
   try {
     Bun.spawnSync(
-      ["ssh", ...SSH_OPTS, `${user}@${ip}`, `launchctl bootout gui/$(id -u)/${serviceLabel}`],
+      ["ssh", ...SSH_OPTS, "--", `${user}@${ip}`, `launchctl bootout gui/$(id -u)/${serviceLabel}`],
       { stdout: "ignore", stderr: "ignore" },
     );
   } catch {
@@ -193,6 +193,7 @@ export function bootstrapRemoteSync(user: string, ip: string, plistPath: string,
       [
         "ssh",
         ...SSH_OPTS,
+        "--",
         `${user}@${ip}`,
         `launchctl bootstrap gui/$(id -u) ${plistPath} || launchctl kickstart -k gui/$(id -u)/${serviceLabel}`,
       ],

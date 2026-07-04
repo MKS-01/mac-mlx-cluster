@@ -2,15 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-This is a docs + tooling repo for Mac cluster setup and experimentation with MLX LLMs on Apple Silicon and across a two-Mac cluster. It holds guides (`doc/MLX_QUICKSTART.md`, `doc/CLUSTER_SETUP.md`), the Python `mlxctl` CLI (no build/test/lint), and `src/cli/` — a standalone Bun/TypeScript terminal chat client (see below).
+This is a docs + tooling repo for Mac cluster setup and experimentation with MLX LLMs on Apple Silicon and across a two-Mac cluster. It holds guides (`doc/MLX_QUICKSTART.md`, `doc/CLUSTER_SETUP.md`), the Python `mlxctl` CLI (no build/test, `ruff` for lint/format — see `doc/ARCHITECTURE.md`), and `src/cli/` — a standalone Bun/TypeScript terminal chat client (see below).
 
 **Release plan: private now, open-sourced later.** Keep secrets and personal absolute paths out of committed files (or isolate them so they're easy to scrub). Write docs and `mlxctl` for an eventual public audience.
 
 ## Layout
 
 - `doc/` — all markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions) — read it before making non-trivial changes to `src/cli/`. `MLX_QUICKSTART.md`/`CLUSTER_SETUP.md` are the detailed setup docs it links out to. **`ROADMAP.md`** tracks planned-but-not-built work — check it before assuming a feature doesn't exist yet vs. was deliberately deferred.
-- `src/` — all code: `mlxctl`, `requirements*.txt`, `src/cluster/` (Python distributed-MLX scripts + example configs), `src/cli/` (the TypeScript chat client).
-- `.claude/skills/` — project skills for common cluster/CLI tasks (`ssh-check`, `debug`, `model-fit`, `model-transfer`, `cleanup`, `design-system`). Invoke with `/name` or let Claude pick one up from context.
+- `src/` — all code: `src/tools/` (`mlxctl`, the distributed-MLX benchmark script, the zero-dep chat client, example configs, `requirements*.txt`), `src/cli/` (the TypeScript chat client).
+- `.claude/skills/` — project skills for common cluster/CLI tasks (`ssh-check`, `debug`, `model-fit`, `model-transfer`, `cleanup`, `design-system`, `mlx-update`). Invoke with `/name` or let Claude pick one up from context.
 - `CLAUDE.md`, `README.md`, `LICENSE` stay at repo root.
 
 ## Environment (not in this repo)
@@ -20,18 +20,20 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 
 ## `mlxctl` — the model manager
 
-`mlxctl` (`src/mlxctl` in this repo, symlinked into `~/.venvs/mlx/bin`) manages cached models with incomplete-aware status. Edit the file here; the symlink picks up changes.
+`mlxctl` (`src/tools/mlxctl` in this repo, symlinked into `~/.venvs/mlx/bin`) manages cached models with incomplete-aware status. Edit the file here; the symlink picks up changes.
 
 - `mlxctl list` — all models with true size + status (counts `.incomplete`, unlike `hf cache list`)
 - `mlxctl status <repo>` — per-shard download progress
 - `mlxctl download <repo>` — refuses to start if one is already running
-- `mlxctl remove <repo>` / `mlxctl clean [repo]` — delete / kill+clear locks+partials
+- `mlxctl remove <repo>` — delete a model entirely, complete or not (the only command that deletes complete snapshot files — separate from `clean` on purpose, see gotcha below)
+- `mlxctl clean [repo]` — kill a stuck download, clear stale locks, and drop stale `.incomplete` blobs; never deletes a repo's complete files
 - `mlxctl run <repo> [args]` — launch `mlx_lm.chat` (repo accepts a unique substring, e.g. `9b`)
 
 ## Download gotchas (we hit these)
 
 - **Never `Ctrl+C` a download.** The `hf-xet` backend starts a fresh temp file per attempt instead of resuming, so interrupting effectively restarts that shard from 0.
 - **Only one download at a time.** Two `hf download` runs of the same model deadlock on the HF cache lock (`.locks/...`). Use `mlxctl clean <repo>` to kill stragglers + clear stale locks.
+- **A fully-downloaded model can still show `status: incomplete`.** Retried attempts leave stale `.incomplete` blobs behind (see the `Ctrl+C` gotcha above); `mlxctl status`/`list` report "incomplete" whenever any `.incomplete` file exists, even if every shard the model actually needs is already present. Don't assume "incomplete" means missing data — run `hf cache list` (completed-files-only) to check what's really there before deleting anything. `mlxctl clean <repo>` is safe here: it only removes the stale `.incomplete` blobs, never a complete snapshot's files. Use `mlxctl remove <repo>` only when you actually want the model gone.
 - `hf cache list` only counts completed files — use `mlxctl list`/`status` to see in-progress size.
 
 ## Hardware patterns (see `doc/CLUSTER_SETUP.md`)

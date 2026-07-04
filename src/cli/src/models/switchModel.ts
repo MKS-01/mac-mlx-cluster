@@ -1,6 +1,8 @@
 import type { ClusterConfig } from "../config/config";
 import type { Session } from "../cluster/cluster";
 import { pollUntilHealthy, startLocalServer, stopLocalServer } from "../net/server";
+import { startDistributedServer, stopDistributedServer } from "../net/distributed";
+import { checkCachedOnBothNodes } from "./models";
 import { setRemoteModel, kickstartRemote } from "../net/ssh";
 
 export interface SwitchResult {
@@ -22,6 +24,34 @@ export async function switchModel(
   newModel: string,
   onStatus: (line: string) => void,
 ): Promise<SwitchResult> {
+  // Shard mode has no plist to edit — a model switch is a full teardown +
+  // relaunch of the distributed group. Cache is checked on every node BEFORE
+  // stopping the old group, so a bad target leaves the current model serving.
+  if (session.mode === "shard") {
+    const cache = await checkCachedOnBothNodes(config, newModel);
+    if (!cache.ok) {
+      return {
+        ok: false,
+        message:
+          cache.reason ??
+          `${newModel} is not cached on: ${cache.missingOn.join(", ")} — sharding needs it on every node. ` +
+            `Copy it over first (model-transfer skill, or the rsync in CLUSTER_SETUP.md §7).`,
+      };
+    }
+    onStatus(`stopping the sharded group…`);
+    await stopDistributedServer(session.distributedHandle, config);
+    try {
+      const handle = await startDistributedServer(config, newModel, onStatus);
+      return {
+        ok: true,
+        message: `model → ${newModel}`,
+        session: { ...session, model: newModel, distributedHandle: handle, base: handle.base },
+      };
+    } catch (err) {
+      return { ok: false, message: `failed to relaunch the sharded group: ${(err as Error).message}` };
+    }
+  }
+
   if (session.mode === "local") {
     onStatus(`stopping local server…`);
     stopLocalServer(session.localHandle);

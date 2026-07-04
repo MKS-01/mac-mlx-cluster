@@ -67,6 +67,32 @@ serving back to the m1, without asking.
 3. Go/no-go on the `StatusPanel` label distinction and the `/migrate`
    command, called out above as optional.
 
+## `src/cli` — `/mode solo` / `/mode cluster`: verify on real hardware
+
+**Status:** built (see `ARCHITECTURE.md` § "Serving modes"), but not yet
+exercised on the actual two-Mac cluster — this repo has no test suite, so
+the following can only be closed out live:
+
+1. **Solo:** `/mode solo` mid-session → M1's LaunchAgent stops, local
+   `mlx_lm.server` comes up, chat keeps working; quit restores the M1.
+2. **Cluster smoke test:** `/mode cluster` with a model cached on both
+   nodes → LaunchAgent stops first, `mlx.launch` group comes up, health
+   check passes against rank 0's hostfile IP, streaming works, tok/s is in
+   the ballpark of `CLUSTER_SETUP.md` §7's measured ~9.6 tok/s.
+3. **Teardown:** leaving shard mode (or quitting) actually kills the remote
+   rank. The code assumes the worst and always sweeps the server node with
+   `pkill -f mlx_lm.server` over SSH after stopping `mlx.launch` — if the
+   launcher turns out to reap its own remote rank on SIGTERM, the sweep is
+   redundant (but harmless) and can stay.
+4. **Cache-check failure path:** `/mode cluster <repo missing on one node>`
+   → clear error naming the node, no partial launch, old session unharmed.
+5. **`/model` inside shard mode:** old group fully down before the new one
+   launches; **and** whether the 240s health-check budget in
+   `src/cli/src/net/distributed.ts` matches real distributed cold-load
+   timing (it's a guess — tune it once measured).
+6. Whether a non-interactive `Bun.spawn` (stdin ignored) really sidesteps
+   the "don't pipe stdin into `mlx.launch`" corruption gotcha.
+
 ## `CLUSTER_SETUP.md` §9 — verify wired-memory limit persistence on real hardware
 
 **Status:** tooling shipped (`mlxctl meminfo`, `wired-limit.example.plist`,

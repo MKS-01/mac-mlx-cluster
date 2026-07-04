@@ -5,11 +5,17 @@ Commands:
   list                  List downloaded models (size + complete/incomplete)
   status <repo>         Show download progress for one repo (incomplete-aware)
   download <repo>       Download a model (refuses if one is already running)
-  remove <repo>         Delete a model from the cache
-  clean [repo]          Kill stale downloads, clear locks, drop partials
+  remove <repo>         Delete a model from the cache entirely, complete or not
+  clean [repo]          Kill stale downloads, clear locks, drop stale partial
+                        blobs only — never deletes a repo's complete files
   run <repo> [args...]  Launch mlx_lm.chat on a model (passes extra args through)
   search <query>        Search mlx-community on the Hub
   meminfo [repo]        Show this Mac's MLX wired-memory ceiling (+ fit verdict for repo)
+  server <start|stop|status>
+                        Start/stop/check the mlx_lm.server LaunchAgent. Reads
+                        ~/.mlx/cluster-cli.json for where the server lives;
+                        runs launchctl locally if you're already on that Mac,
+                        over SSH otherwise — same command either way.
 
 Repo can be the full id (mlx-community/Qwen3.5-9B-4bit) or a unique
 substring of one already in the cache (e.g. "9b", "3.6").
@@ -215,14 +221,35 @@ def cmd_remove(args):
     print(grn("done."))
 
 def cmd_clean(args):
-    target = args[0] if args else "Qwen|Llama|mlx|model"  # broad if none given
     if args:
-        repo = args[0]
+        repo = resolve(args[0])
+        d = repo_to_dir(repo)
+        if not d.exists():
+            die(f"not in cache: {repo}")
         subprocess.run(["pkill", "-f", f"hf download.*{repo}"])
-        d = repo_to_dir(resolve(repo))
-        subprocess.run(["rm", "-rf", str(d)])
-        subprocess.run(["rm", "-rf", str(LOCKS / d.name)])
-        print(grn(f"cleaned {repo}: killed downloads, removed partial + locks ✓"))
+        # Only ever remove stale partial data (leftover .incomplete blobs from
+        # earlier failed/retried attempts — the hf-xet backend starts a fresh
+        # temp file per attempt instead of resuming, so these accumulate) and
+        # locks. Never touch a complete snapshot's files — that's what
+        # `mlxctl remove` is for, as a deliberate, separate action.
+        blobs = d / "blobs"
+        incompletes = list(blobs.glob("*.incomplete")) if blobs.exists() else []
+        freed = sum(f.stat().st_size for f in incompletes)
+        for f in incompletes:
+            f.unlink(missing_ok=True)
+        lock_dir = LOCKS / d.name
+        had_locks = lock_dir.exists()
+        subprocess.run(["rm", "-rf", str(lock_dir)])
+        print(grn(
+            f"cleaned {repo}: removed {len(incompletes)} stale partial file(s) "
+            f"({human(freed)})" + (", cleared locks" if had_locks else "") + " ✓"
+        ))
+        status, _, _ = completeness(d)
+        if status != "complete":
+            print(dim(
+                f"  still incomplete — re-run 'mlxctl download {repo}' to finish it, "
+                f"or 'mlxctl remove {repo}' to delete it entirely"
+            ))
         return
     # global tidy: kill nothing, just clear stale locks + report incompletes
     killed = subprocess.run(["pkill", "-0", "-f", "hf download"],
@@ -326,6 +353,73 @@ def cmd_meminfo(args):
     else:
         print(f"  {grn('✓')} fits comfortably under the wired ceiling")
 
+CLUSTER_CONFIG = Path.home() / ".mlx" / "cluster-cli.json"
+
+def load_server_config():
+    if not CLUSTER_CONFIG.exists():
+        die(f"no cluster config at {CLUSTER_CONFIG} (copy from src/cli/config.example.json)")
+    try:
+        cfg = json.loads(CLUSTER_CONFIG.read_text())
+    except json.JSONDecodeError as e:
+        die(f"malformed cluster config {CLUSTER_CONFIG}: {e}")
+    return cfg["server"]
+
+def expand_home(path, user=None):
+    if not path.startswith("~"):
+        return path
+    home = f"/Users/{user}" if user else str(Path.home())
+    return path.replace("~", home, 1)
+
+def run_launchctl(is_local, user, ip, cmd, timeout=10):
+    if is_local:
+        return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+         "-o", "StrictHostKeyChecking=accept-new", f"{user}@{ip}", cmd],
+        capture_output=True, text=True, timeout=timeout + 5,
+    )
+
+def cmd_server(args):
+    if not args or args[0] not in ("start", "stop", "status"):
+        die("usage: mlxctl server <start|stop|status>")
+    action = args[0]
+    server = load_server_config()
+    ip, user, label = server["ip"], server["sshUser"], server["serviceLabel"]
+    local_plist = Path(expand_home(server["plistPath"]))
+    is_local = local_plist.exists()
+    where = "locally" if is_local else f"via ssh ({user}@{ip})"
+
+    if action == "status":
+        r = run_launchctl(is_local, user, ip, f"launchctl print gui/$(id -u)/{label}")
+        running = r.returncode == 0
+        print((grn("● running") if running else dim("○ not running")) + dim(f"  ({where})"))
+        return
+
+    if action == "start":
+        remote_plist = expand_home(server["plistPath"], user)
+        cmd = f"launchctl bootstrap gui/$(id -u) {remote_plist}"
+    else:
+        cmd = f"launchctl bootout gui/$(id -u)/{label}"
+
+    verb = "starting" if action == "start" else "stopping"
+    print(dim(f"→ {verb} {label} {where} ...")) if not is_local else None
+    r = run_launchctl(is_local, user, ip, cmd)
+    out = (r.stdout + r.stderr).strip()
+
+    if action == "start" and r.returncode != 0 and ("already bootstrapped" in out or "already loaded" in out):
+        r = run_launchctl(is_local, user, ip, f"launchctl kickstart -k gui/$(id -u)/{label}")
+        out = (r.stdout + r.stderr).strip()
+
+    if action == "stop" and r.returncode != 0 and (
+        "Could not find service" in out or "No such process" in out
+    ):
+        print(dim(f"{label} was already stopped ({where})"))
+        return
+
+    if r.returncode != 0:
+        die(f"{action} failed ({where}): {out or 'no output'}")
+    print(grn(f"✓ {label} {'started' if action == 'start' else 'stopped'}") + dim(f"  ({where})"))
+
 CMDS = {
     "list": cmd_list, "ls": cmd_list,
     "status": cmd_status, "st": cmd_status,
@@ -335,6 +429,7 @@ CMDS = {
     "run": cmd_run,
     "search": cmd_search,
     "meminfo": cmd_meminfo, "mem": cmd_meminfo,
+    "server": cmd_server,
 }
 
 def main():

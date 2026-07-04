@@ -17,8 +17,11 @@ static IPs on top):
 
 No Wi-Fi/LAN dependency for cluster traffic — everything (SSH, the model
 API, macmon stats, distributed `mlx.launch` jobs) rides the Thunderbolt
-bridge. RDMA/JACCL speedups need Thunderbolt 5, which the M1 Pro lacks, so
-distributed jobs use the `ring` (TCP) backend instead.
+bridge. RDMA/JACCL is the better-performing backend and would be the
+default choice if both nodes supported it, but it needs Thunderbolt 5 on
+*every* node — the M1 Pro here only has TB4, so this particular pair can't
+reach it regardless of cable. Distributed jobs use the `ring` (TCP) backend
+instead; see `CLUSTER_SETUP.md`'s "Backend choice" for the full tradeoff.
 
 ## Two serving patterns
 
@@ -29,7 +32,9 @@ client) talks to it as a plain OpenAI-compatible REST API. No sharding — one
 Mac holds the whole model, the other's memory stays 100% free.
 
 **Pattern B — tensor-parallel sharding**, only for models too big for one
-Mac (>~38 GB). Launched via `mlx.launch --backend ring` across both nodes.
+Mac (>~38 GB). Launched via `mlx.launch --backend ring` across both nodes —
+either manually (`CLUSTER_SETUP.md` §7) or from inside the CLI via
+`/mode cluster` (below).
 Aggregates *memory*, not speed — sharding a model that already fits on one
 Mac makes it slower, so Pattern A is preferred whenever the model fits.
 **Uneven splits (60/40, 55/45) are not possible at the tensor-parallel
@@ -38,7 +43,7 @@ count, and forcing an uneven split via multiple ranks per GPU caused Metal
 timeouts on the M1 in testing. This is why the CLI's wear-leveling feature
 (below) balances *which Mac serves whole*, not *how the model is split*.
 
-## `src/mlxctl` — model cache manager
+## `src/tools/mlxctl` — model cache manager
 
 Standalone Python script (no deps beyond `huggingface_hub`), symlinked into
 `~/.venvs/mlx/bin`. Manages `~/.cache/huggingface/hub` with incomplete-aware
@@ -46,6 +51,14 @@ status (`hf cache list` only counts finished files; `mlxctl list`/`status`
 also see in-progress downloads). This cache is shared and load-bearing:
 both `mlx_lm.server` (offline mode) and the CLI's `/model` command treat
 "what's in this cache" as the hard source of truth for what can be served.
+
+Dev loop:
+
+```sh
+~/.venvs/mlx/bin/pip install -r src/tools/requirements.txt -r src/tools/requirements-dev.txt
+ruff check src/tools/mlxctl      # lint
+ruff format src/tools/mlxctl     # format
+```
 
 ### Wired-memory limit (`mlxctl meminfo`)
 
@@ -120,6 +133,59 @@ Whichever Mac took over restores the other's LaunchAgent on quit
 the process-exit handler) — Pattern A's always-on invariant holds again
 once the session ends.
 
+Two corrections layered on the time-share policy (both in
+`src/cluster/memory.ts` / `index.tsx`):
+
+- **Memory-fit override** — the nodes are not interchangeable (32 vs
+  48 GB), so whatever the split says, startup checks the model's cached
+  size against the target node's estimated wired ceiling
+  (`fitVerdict`, ~72% of RAM with mlx-lm's 90% warning margin — one shared
+  definition also used by the `/model` list's fit column and the `/model`
+  switch pre-flight) and serves from the other Mac instead if it can't
+  wire, or suggests `/mode cluster` if neither can alone.
+- **Shard crediting** — a sharded session works both Macs equally, so its
+  active time is credited half to each node's history rather than lumped
+  onto one side.
+
+### Serving modes (`/mode`, `src/cluster/cluster.ts`, `src/net/distributed.ts`)
+
+`/mode` switches how the model is served, mid-session, without restarting
+the CLI. Three internal modes (`Mode` in `cluster.ts`):
+
+- **`cluster`** (shown as **server** in the UI, reachable via `/mode
+  server`) — Pattern A, attached to the server node's LaunchAgent (the
+  startup default when it's reachable). Switching back to it discharges a
+  prior takeover's restore-on-quit obligation — the LaunchAgent running
+  again *is* the restoration, and the session re-attaches as shared infra
+  rather than claiming ownership.
+- **`local`** (shown as **solo** in the UI) — whole model served by a
+  process this CLI spawned on this Mac. Reached three ways, distinguished
+  by `localOrigin`: an emergency `"fallback"` (server unreachable at
+  connect), or a deliberate `"takeover"` (wear-leveling turn, or the user
+  typing `/mode solo`).
+- **`shard`** (shown as **cluster** in the UI — the user-facing name for
+  Pattern B) — `/mode cluster [<model>]` stops the server node's
+  LaunchAgent (freeing its RAM), verifies the model is HF-cached on
+  *every* node (no auto-copy — multi-GB transfers stay a deliberate step
+  via the `model-transfer` skill), then spawns `mlx.launch --backend ring`
+  running `mlx_lm.server` tensor-parallel across the hostfile's nodes.
+  `mlx_lm.server` has native distributed support (rank 0 detects the group,
+  loads via `sharded_load`, and serves the ordinary OpenAI-compatible HTTP
+  API), so the CLI's chat/streaming code is unchanged — only process
+  launch/teardown (`src/net/distributed.ts`) is new. Rank 0's IP is read
+  from the hostfile itself (first entry, `mlx.launch`'s own convention),
+  never duplicated in config. `/model` in this mode tears down and
+  relaunches the whole distributed group (there's no plist to edit).
+
+Mode switches tear down the old serving arrangement first
+(`stopCurrentSession`) but do *not* restore Pattern A — only quitting does.
+The restore-on-quit obligation (`tookOverFromServer`) carries forward
+across switches, so however many `/mode` hops a session takes, quit still
+brings the server node's LaunchAgent back exactly once. Teardown of a
+sharded group also sweeps the server node for an orphaned `mlx_lm.server`
+rank over SSH (whether `mlx.launch` reaps its remote rank on SIGTERM is
+unverified on this hardware — the sweep is idempotent either way).
+
 ### `/model` switching (`src/models/models.ts`, `src/models/switchModel.ts`)
 
 Lists/resolves against the HF cache actually present on the *serving* node
@@ -157,9 +223,11 @@ you ──▶ mlx-cluster-cli (wherever it runs)
           │
           ├─ decides: cluster (m1) or local (this Mac)?  [cluster.ts]
           ├─ decides: is it the peer's turn to serve?     [splitPolicy.ts]
+          ├─ /mode cluster: shard across both Macs        [distributed.ts]
           │
           ▼
-   mlx_lm.server (m1 LaunchAgent, or spawned locally)
+   mlx_lm.server (m1 LaunchAgent, spawned locally,
+                  or one rank per Mac under mlx.launch)
           │
           ├─ HF cache (~/.cache/huggingface/hub, offline-only)
           └─ OpenAI-compatible REST + SSE, port 8080
@@ -170,14 +238,17 @@ you ──▶ mlx-cluster-cli (wherever it runs)
 ## Repo layout
 
 - `doc/` — this file plus the guides linked above.
-- `src/mlxctl`, `src/requirements*.txt` — Python cache-management tool.
-- `src/cluster/` — distributed-MLX smoke-test scripts and example configs
-  (hostfile, LaunchAgent plist) referenced by `CLUSTER_SETUP.md`.
+- `src/tools/` — the Python side: `mlxctl` (cache manager), `dist_bench.py`
+  (distributed smoke test + tensor-parallel benchmark, run under
+  `mlx.launch`), `chat.py` (zero-dependency debugging/testing client for
+  poking an `mlx_lm.server` endpoint — not a chat product, that's `src/cli/`
+  below), the example configs (`hostfile.example.json`,
+  `mlx-server.example.plist`, `wired-limit.example.plist`) referenced by
+  `CLUSTER_SETUP.md`, and `requirements*.txt`.
 - `src/cli/` — the TypeScript chat client described above, organized by
   domain under `src/cli/src/`: `config/` (static + dynamic config),
   `net/` (ssh/server/macmon — talking to the Macs), `cluster/` (mode
-  decision + wear-leveling policy — unrelated to the Python `src/cluster/`
-  above despite the shared name), `models/` (cache listing + `/model`
+  decision + wear-leveling policy), `models/` (cache listing + `/model`
   switching), `chat/` (SSE streaming + transcript windowing), `ui/`
   (Ink `app.tsx`, theme, and `components/`). `index.tsx` is the entry point.
 - `CLAUDE.md`, `README.md`, `LICENSE` — repo root.

@@ -20,7 +20,10 @@ export function InputBar({
   };
 
   return (
-    <Box borderStyle="round" borderColor={DIM} paddingX={1}>
+    // Round corners render as ╭╮ (how round they look is up to the terminal
+    // font). Border tints blue while a reply is streaming so the box reads
+    // as busy without extra text.
+    <Box borderStyle="round" borderColor={disabled ? BLUE : DIM} paddingX={1}>
       <Text color={BLUE}>{"❯ "}</Text>
       {disabled ? (
         <Text color={DIM}>{busyText ?? "waiting for reply… (esc to cancel)"}</Text>

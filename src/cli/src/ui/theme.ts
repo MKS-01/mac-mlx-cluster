@@ -6,3 +6,6 @@ export const RED = "#ff5d5d";
 export const BLUE = "#4da3ff";
 export const GREEN = "#5dd17a";
 export const YELLOW = "#e6c35a";
+// Unfilled gauge track — darker than DIM so the filled portion of a bar is
+// the only thing that draws the eye (matches the README hero mock's track).
+export const TRACK = "#3a3f47";

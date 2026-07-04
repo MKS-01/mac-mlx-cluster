@@ -4,6 +4,8 @@
 // { cpu_usage_pct, gpu_usage: [count, pct], memory: { ram_total, ram_usage },
 //   temp: { cpu_temp_avg, gpu_temp_avg }, ... }
 
+import { networkInterfaces } from "node:os";
+
 export interface MacmonSnapshot {
   cpu_usage_pct: number;
   gpu_usage: [number, number];
@@ -31,12 +33,43 @@ export async function fetchMacmon(base: string, timeoutMs = 1500): Promise<Macmo
   }
 }
 
-export async function fetchNodeStats(id: string, host: string, port: number): Promise<NodeStats> {
+/**
+ * Which configured node is the Mac this CLI is running on: the one whose
+ * IP is assigned to a local interface. With the bridge down neither
+ * configured IP exists anywhere, so fall back to the peer — by convention
+ * the CLI runs on the dev/peer Mac (the same assumption local mode's
+ * "this Mac is the peer" fit-check already makes).
+ */
+export function selfNodeId(server: { id: string; ip: string }, peer: { id: string; ip: string }): string {
+  const local = new Set(
+    Object.values(networkInterfaces())
+      .flat()
+      .map((i) => i?.address),
+  );
+  if (local.has(server.ip)) return server.id;
+  if (local.has(peer.ip)) return peer.id;
+  return peer.id;
+}
+
+export async function fetchNodeStats(
+  id: string,
+  host: string,
+  port: number,
+  isSelf = false,
+): Promise<NodeStats> {
   const base = `http://${host}:${port}`;
-  const snapshot = await fetchMacmon(base);
-  return snapshot
-    ? { id, reachable: true, snapshot, error: null }
-    : { id, reachable: false, snapshot: null, error: `macmon unreachable at ${base}` };
+  let snapshot = await fetchMacmon(base);
+  // This Mac's own macmon doesn't need the bridge — if the configured IP is
+  // unreachable (solo session, cable unplugged), reach it over loopback so
+  // the memory section still shows the machine that's actually serving.
+  if (!snapshot && isSelf) snapshot = await fetchMacmon(`http://127.0.0.1:${port}`);
+  if (snapshot) return { id, reachable: true, snapshot, error: null };
+  return {
+    id,
+    reachable: false,
+    snapshot: null,
+    error: isSelf ? `macmon not running on this Mac (port ${port})` : `macmon unreachable at ${base}`,
+  };
 }
 
 export interface CombinedStats {

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="300" viewBox="0 0 720 300" role="img" aria-label="mlx-cluster-cli placeholder — real screenshot coming soon">
+  <rect width="720" height="300" rx="10" fill="#1c1e22"/>
+  <!-- window chrome -->
+  <circle cx="24" cy="22" r="6" fill="#ff5f57"/>
+  <circle cx="44" cy="22" r="6" fill="#febc2e"/>
+  <circle cx="64" cy="22" r="6" fill="#28c840"/>
+  <g font-family="SFMono-Regular, Menlo, Consolas, monospace">
+    <!-- wordmark -->
+    <text x="36" y="72" font-size="22" font-weight="bold">
+      <tspan fill="#e6e6e6">MLX </tspan><tspan fill="#5b9dff">CLUSTER</tspan>
+    </text>
+    <text x="36" y="96" font-size="12" fill="#8a8f98">MLX inference — solo, server, or sharded across Macs · <tspan fill="#5b9dff">v0.1.0</tspan></text>
+    <!-- status panel -->
+    <text x="36" y="132" font-size="12">
+      <tspan fill="#8a8f98">memory  </tspan><tspan fill="#e6e6e6">m1 </tspan><tspan fill="#3ddc84">████████</tspan><tspan fill="#3a3f47">░░░░░░░░</tspan><tspan fill="#8a8f98"> 14.2 / 32 GB</tspan>
+    </text>
+    <text x="36" y="152" font-size="12">
+      <tspan fill="#8a8f98">        </tspan><tspan fill="#e6e6e6">m5 </tspan><tspan fill="#3ddc84">███</tspan><tspan fill="#3a3f47">█████████████</tspan><tspan fill="#8a8f98">  6.8 / 48 GB</tspan>
+    </text>
+    <text x="36" y="176" font-size="12">
+      <tspan fill="#8a8f98">model   </tspan><tspan fill="#e6e6e6">mlx-community/Qwen3.6-35B-A3B-4bit-DWQ</tspan>
+    </text>
+    <text x="36" y="196" font-size="12">
+      <tspan fill="#8a8f98">server  </tspan><tspan fill="#e6e6e6">server · attached</tspan>
+    </text>
+    <!-- input bar -->
+    <rect x="34" y="218" width="652" height="34" rx="6" fill="none" stroke="#3a3f47"/>
+    <text x="48" y="240" font-size="12"><tspan fill="#5b9dff">❯ </tspan><tspan fill="#8a8f98">message the model…  (/help for commands)</tspan></text>
+  </g>
+</svg>
