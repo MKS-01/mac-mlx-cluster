@@ -23,6 +23,12 @@ export interface ClusterConfig {
   defaultModel: string;
   localApiPort: number; // port used when this CLI spawns mlx_lm.server locally (fallback mode)
   venvPath: string; // e.g. ~/.venvs/mlx
+  // Pattern B (/mode cluster) — tensor-parallel sharding across both Macs.
+  distributed: {
+    // mlx.launch hostfile; rank 0's bind IP is read from this file at launch
+    // time (first entry = rank 0) rather than duplicated here.
+    hostfile: string;
+  };
 }
 
 const CONFIG_PATH = join(homedir(), ".mlx", "cluster-cli.json");
@@ -46,6 +52,9 @@ export const DEFAULT_CONFIG: ClusterConfig = {
   defaultModel: "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   localApiPort: 8080,
   venvPath: join(homedir(), ".venvs", "mlx"),
+  distributed: {
+    hostfile: join(homedir(), ".mlx", "tb-ring-hostfile.json"),
+  },
 };
 
 export class ConfigError extends Error {}
@@ -75,6 +84,7 @@ export function loadConfig(): ClusterConfig {
     defaultModel: r.defaultModel ?? DEFAULT_CONFIG.defaultModel,
     localApiPort: r.localApiPort ?? DEFAULT_CONFIG.localApiPort,
     venvPath: r.venvPath ?? DEFAULT_CONFIG.venvPath,
+    distributed: { ...DEFAULT_CONFIG.distributed, ...r.distributed },
   };
 }
 

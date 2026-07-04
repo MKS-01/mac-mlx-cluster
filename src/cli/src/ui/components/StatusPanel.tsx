@@ -13,8 +13,13 @@ function Label({ text }: { text: string }) {
 }
 
 function serverLabel(session: Session): string {
-  if (session.mode === "local") return "local fallback · spawned";
-  return session.clusterOrigin === "started" ? "cluster · started by this session" : "cluster · attached";
+  if (session.mode === "shard") return "sharded · all nodes (tensor parallel)";
+  if (session.mode === "local") {
+    // A deliberate takeover (wear-leveling turn, /mode solo) reads
+    // differently than an emergency fallback with the server unreachable.
+    return session.localOrigin === "takeover" ? "solo · this Mac" : "solo · this Mac (server unreachable)";
+  }
+  return session.clusterOrigin === "started" ? "server · started by this session" : "server · attached";
 }
 
 /**

@@ -19,7 +19,14 @@ built following the same shell/lifecycle pattern as `readback-cli`.
 - Full multi-turn streaming chat against the served model.
 - `/model <repo>` to switch models without restarting the CLI (cluster mode:
   edits the remote LaunchAgent plist + `launchctl kickstart -k`; local mode:
-  respawns the local process).
+  respawns the local process; sharded mode: relaunches the distributed group).
+- `/mode solo` and `/mode cluster [<repo>]` to switch *how* the model is
+  served, mid-session: **solo** serves the whole model on this Mac only
+  (stopping the dedicated server so its memory actually frees), **cluster**
+  shards a model too big for either Mac across all nodes via
+  `mlx.launch --backend ring` (the model must already be in every node's HF
+  cache — the CLI checks and names the missing node rather than auto-copying
+  multi-GB files). Quit restores the dedicated server either way.
 - Live stats bar (CPU/GPU/temp/RAM), combined or per-node (`/stats` to
   toggle), via `macmon serve` polled over HTTP on both Macs.
 
@@ -36,7 +43,10 @@ built following the same shell/lifecycle pattern as `readback-cli`.
    `~/.mlx/cluster-cli.json` and fill in your usernames/IPs (defaults match
    `CLUSTER_SETUP.md`'s example — 10.0.0.1 server / 10.0.0.2 peer — so if
    you followed that guide as-is you may not need to change much).
-4. `bun install`
+4. For `/mode cluster` (sharded serving), the `mlx.launch` hostfile from
+   `CLUSTER_SETUP.md` §5 must exist (default `~/.mlx/tb-ring-hostfile.json`,
+   configurable via `distributed.hostfile`).
+5. `bun install`
 
 ## Run
 
@@ -51,9 +61,13 @@ mlx-cluster-cli --model <repo>   # override the default/last-used model
 
 | Command | What |
 |---|---|
-| `/model` | show current model |
+| `/model` | list models cached on the serving node |
 | `/model <repo>` | switch the served model |
+| `/mode` | show the current serving mode |
+| `/mode solo` | serve on this Mac only (stops the dedicated server) |
+| `/mode cluster [<repo>]` | shard the model across all nodes (big models) |
 | `/stats` | toggle combined ↔ per-node stats view |
+| `/split [<ratio>]` | show / set the wear-leveling time-share target |
 | `/clear` | clear the chat transcript |
 | `/help` | toggle command help |
 | `/quit`, `/exit`, `q` | quit |

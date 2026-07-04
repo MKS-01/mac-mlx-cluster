@@ -21,12 +21,12 @@ export function Header() {
         </Box>
       ))}
       <Box marginTop={1}>
-        <Text color={DIM}>two-Mac MLX inference cluster · </Text>
+        <Text color={DIM}>MLX inference — solo, server, or sharded across Macs · </Text>
         <Text color={BLUE}>v{version}</Text>
       </Box>
       <Text color={DIM}>
         chat with the served model · <Text color={BLUE}>/model</Text> ·{" "}
-        <Text color={BLUE}>/stats</Text> · <Text color={BLUE}>/clear</Text> ·{" "}
+        <Text color={BLUE}>/mode</Text> · <Text color={BLUE}>/stats</Text> ·{" "}
         <Text color={BLUE}>/help</Text>
       </Text>
     </Box>

@@ -29,7 +29,9 @@ client) talks to it as a plain OpenAI-compatible REST API. No sharding — one
 Mac holds the whole model, the other's memory stays 100% free.
 
 **Pattern B — tensor-parallel sharding**, only for models too big for one
-Mac (>~38 GB). Launched via `mlx.launch --backend ring` across both nodes.
+Mac (>~38 GB). Launched via `mlx.launch --backend ring` across both nodes —
+either manually (`CLUSTER_SETUP.md` §7) or from inside the CLI via
+`/mode cluster` (below).
 Aggregates *memory*, not speed — sharding a model that already fits on one
 Mac makes it slower, so Pattern A is preferred whenever the model fits.
 **Uneven splits (60/40, 55/45) are not possible at the tensor-parallel
@@ -120,6 +122,55 @@ Whichever Mac took over restores the other's LaunchAgent on quit
 the process-exit handler) — Pattern A's always-on invariant holds again
 once the session ends.
 
+Two corrections layered on the time-share policy (both in
+`src/cluster/memory.ts` / `index.tsx`):
+
+- **Memory-fit override** — the nodes are not interchangeable (32 vs
+  48 GB), so whatever the split says, startup checks the model's cached
+  size against the target node's estimated wired ceiling
+  (`fitVerdict`, ~72% of RAM with mlx-lm's 90% warning margin — one shared
+  definition also used by the `/model` list's fit column and the `/model`
+  switch pre-flight) and serves from the other Mac instead if it can't
+  wire, or suggests `/mode cluster` if neither can alone.
+- **Shard crediting** — a sharded session works both Macs equally, so its
+  active time is credited half to each node's history rather than lumped
+  onto one side.
+
+### Serving modes (`/mode`, `src/cluster/cluster.ts`, `src/net/distributed.ts`)
+
+`/mode` switches how the model is served, mid-session, without restarting
+the CLI. Three internal modes (`Mode` in `cluster.ts`):
+
+- **`cluster`** — Pattern A, attached to the server node's LaunchAgent
+  (the startup default when it's reachable).
+- **`local`** (shown as **solo** in the UI) — whole model served by a
+  process this CLI spawned on this Mac. Reached three ways, distinguished
+  by `localOrigin`: an emergency `"fallback"` (server unreachable at
+  connect), or a deliberate `"takeover"` (wear-leveling turn, or the user
+  typing `/mode solo`).
+- **`shard`** (shown as **cluster** in the UI — the user-facing name for
+  Pattern B) — `/mode cluster [<model>]` stops the server node's
+  LaunchAgent (freeing its RAM), verifies the model is HF-cached on
+  *every* node (no auto-copy — multi-GB transfers stay a deliberate step
+  via the `model-transfer` skill), then spawns `mlx.launch --backend ring`
+  running `mlx_lm.server` tensor-parallel across the hostfile's nodes.
+  `mlx_lm.server` has native distributed support (rank 0 detects the group,
+  loads via `sharded_load`, and serves the ordinary OpenAI-compatible HTTP
+  API), so the CLI's chat/streaming code is unchanged — only process
+  launch/teardown (`src/net/distributed.ts`) is new. Rank 0's IP is read
+  from the hostfile itself (first entry, `mlx.launch`'s own convention),
+  never duplicated in config. `/model` in this mode tears down and
+  relaunches the whole distributed group (there's no plist to edit).
+
+Mode switches tear down the old serving arrangement first
+(`stopCurrentSession`) but do *not* restore Pattern A — only quitting does.
+The restore-on-quit obligation (`tookOverFromServer`) carries forward
+across switches, so however many `/mode` hops a session takes, quit still
+brings the server node's LaunchAgent back exactly once. Teardown of a
+sharded group also sweeps the server node for an orphaned `mlx_lm.server`
+rank over SSH (whether `mlx.launch` reaps its remote rank on SIGTERM is
+unverified on this hardware — the sweep is idempotent either way).
+
 ### `/model` switching (`src/models/models.ts`, `src/models/switchModel.ts`)
 
 Lists/resolves against the HF cache actually present on the *serving* node
@@ -157,9 +208,11 @@ you ──▶ mlx-cluster-cli (wherever it runs)
           │
           ├─ decides: cluster (m1) or local (this Mac)?  [cluster.ts]
           ├─ decides: is it the peer's turn to serve?     [splitPolicy.ts]
+          ├─ /mode cluster: shard across both Macs        [distributed.ts]
           │
           ▼
-   mlx_lm.server (m1 LaunchAgent, or spawned locally)
+   mlx_lm.server (m1 LaunchAgent, spawned locally,
+                  or one rank per Mac under mlx.launch)
           │
           ├─ HF cache (~/.cache/huggingface/hub, offline-only)
           └─ OpenAI-compatible REST + SSE, port 8080

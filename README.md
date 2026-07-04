@@ -32,8 +32,10 @@ run, against a real M1 Pro + M5 Pro sitting on the same desk.
 - **A two-Mac cluster walkthrough** — Thunderbolt bridge, SSH, hostfile, distributed
   smoke tests, and a dedicated always-on model server (LaunchAgent).
 - **A terminal chat client** (`mlx-cluster-cli`) — Bun/TypeScript/Ink app that manages
-  the cluster's server lifecycle, live CPU/GPU/RAM stats, model switching, and
-  wear-leveling between the two Macs, all from one interactive session.
+  the cluster's server lifecycle, live CPU/GPU/RAM stats, model switching,
+  wear-leveling between the two Macs, and on-demand sharded serving
+  (`/mode cluster`) for models too big for one machine, all from one
+  interactive session.
 
 Only the cluster pieces need two Macs — the quickstart and `mlxctl` work standalone on
 a single Apple Silicon Mac.

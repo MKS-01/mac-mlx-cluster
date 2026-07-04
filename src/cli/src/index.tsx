@@ -6,7 +6,9 @@ import { connect, connectPreferPeer, disconnect, disconnectSync, type Session } 
 import { loadConfig, ConfigError, type ClusterConfig } from "./config/config";
 import { loadPrefs, savePrefs } from "./config/prefs";
 import { recommend, actualPct, formatSplit } from "./cluster/splitPolicy";
-import { fetchNodeStats } from "./net/macmon";
+import { fetchNodeStats, selfNodeId } from "./net/macmon";
+import { fitVerdict } from "./cluster/memory";
+import { localModelSizeGB } from "./models/models";
 
 // Thresholds for the startup wear-leveling check (fractions, matching
 // macmon's cpu_usage_pct / gpu_usage[1]): below IDLE, the peer is clearly
@@ -66,7 +68,12 @@ function persistActiveTime(): void {
   const fresh = loadPrefs();
   const minutes = sessionActiveMs / 60000;
   if (session.mode === "cluster") fresh.splitHistory.serverMinutes += minutes;
-  else fresh.splitHistory.peerMinutes += minutes;
+  else if (session.mode === "shard") {
+    // A sharded session works both Macs equally — credit half to each so
+    // heavy /mode cluster use doesn't skew whose turn the split thinks it is.
+    fresh.splitHistory.serverMinutes += minutes / 2;
+    fresh.splitHistory.peerMinutes += minutes / 2;
+  } else fresh.splitHistory.peerMinutes += minutes;
   savePrefs(fresh);
 }
 
@@ -123,7 +130,12 @@ if (recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
     `wear-leveling: actual split ${pct.server}/${pct.peer} vs target ${formatSplit(prefs.splitTarget)} ` +
     `(${config.server.id}/${config.peer.id}) — ${config.peer.id}'s turn to serve.`;
 
-  const peerStats = await fetchNodeStats(config.peer.id, config.peer.ip, config.peer.macmonPort);
+  const peerStats = await fetchNodeStats(
+    config.peer.id,
+    config.peer.ip,
+    config.peer.macmonPort,
+    selfNodeId(config.server, config.peer) === config.peer.id,
+  );
   const cpuPct = peerStats.snapshot?.cpu_usage_pct ?? 0;
   const gpuPct = peerStats.snapshot?.gpu_usage[1] ?? 0;
 
@@ -140,6 +152,46 @@ if (recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
   } else {
     console.log(dim(splitLine));
     usePeer = await confirmPrompt(dim(`Serve from ${config.peer.id} for this session? [y/N] `));
+  }
+}
+
+// Memory-fit override: whatever the wear-leveling turn says, never point
+// the session at a Mac the model likely can't wire (32 vs 48 GB nodes are
+// not interchangeable). Size comes from this Mac's HF cache (snapshots are
+// identical copies on both nodes); RAM from macmon. Either unavailable →
+// skip the check rather than guess.
+{
+  const startupModel = model ?? prefs.model ?? config.defaultModel;
+  const sizeGB = localModelSizeGB(startupModel);
+  if (sizeGB !== null) {
+    const selfId = selfNodeId(config.server, config.peer);
+    const [srv, peer] = await Promise.all([
+      fetchNodeStats(config.server.id, config.server.ip, config.server.macmonPort, config.server.id === selfId),
+      fetchNodeStats(config.peer.id, config.peer.ip, config.peer.macmonPort, config.peer.id === selfId),
+    ]);
+    const ramOf = (n: typeof srv) => (n.snapshot ? n.snapshot.memory.ram_total / 1024 ** 3 : null);
+    const intendedRam = usePeer ? ramOf(peer) : ramOf(srv);
+    const otherRam = usePeer ? ramOf(srv) : ramOf(peer);
+    if (intendedRam !== null && fitVerdict(sizeGB, intendedRam) === "exceeds") {
+      const intended = usePeer ? config.peer : config.server;
+      const other = usePeer ? config.server : config.peer;
+      if (otherRam !== null && fitVerdict(sizeGB, otherRam) !== "exceeds") {
+        console.log(
+          dim(
+            `${startupModel} (${sizeGB.toFixed(1)} GB) likely exceeds ${intended.id}'s wired-memory ` +
+              `ceiling — serving from ${other.id} instead.`,
+          ),
+        );
+        usePeer = !usePeer;
+      } else {
+        console.log(
+          dim(
+            `${startupModel} (${sizeGB.toFixed(1)} GB) likely exceeds the wired-memory ceiling of ` +
+              `either Mac alone — consider /mode cluster once connected.`,
+          ),
+        );
+      }
+    }
   }
 }
 

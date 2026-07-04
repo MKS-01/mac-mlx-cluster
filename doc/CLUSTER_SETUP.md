@@ -110,7 +110,10 @@ rank 1/2 all_sum -> [2.0, 2.0, 2.0, 2.0]
 ## 7. Distributed inference (sharding a model across both Macs)
 
 Only worth it for models too big for one Mac — sharding aggregates memory, not
-speed. Two modes, chosen per model architecture:
+speed. The `mlx-cluster-cli` chat client can drive this whole section for you
+(`/mode cluster [<model>]` — see `src/cli/README.md`); what follows is the
+underlying manual mechanism, which the CLI wraps. Two modes, chosen per model
+architecture:
 
 - **Tensor parallel** (default): every layer split across nodes. Needs an
   all-reduce per layer, so it's the chattier option, but it's what most

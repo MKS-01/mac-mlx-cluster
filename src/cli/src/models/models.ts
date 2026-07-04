@@ -48,6 +48,53 @@ export async function listServerModels(config: ClusterConfig, session: Session):
   return { ok: true, models: parseDu(r.stdout) };
 }
 
+/**
+ * Verifies a repo is HF-cached on every node before a sharded (/mode
+ * cluster) launch — this Mac's cache directly, the server node's over SSH.
+ * Deliberately does NOT auto-copy: these are multi-GB transfers, so a
+ * missing cache is reported (pointing at the rsync recipe) and left to the
+ * user. An unreachable node counts as missing — the launch would fail there
+ * anyway.
+ */
+/**
+ * Size of one repo in this Mac's HF cache, or null if it isn't cached here.
+ * Used by the startup memory-fit check — the local cache is a good proxy
+ * for the size on either node, since snapshots are byte-identical copies.
+ */
+export function localModelSizeGB(repo: string): number | null {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return null;
+  const dir = `~/.cache/huggingface/hub/models--${repo.replace("/", "--")}`;
+  const proc = Bun.spawnSync(["sh", "-c", `du -sk ${dir} 2>/dev/null`]);
+  const m = proc.stdout.toString().match(/^(\d+)\s/);
+  return m ? Number(m[1]) / 1024 ** 2 : null;
+}
+
+// HF repo ids are GitHub-style "org/name" — letters, digits, ., _, - only.
+// Enforced before the id is interpolated into any shell/SSH command below,
+// so an unresolved user-typed argument can never smuggle shell syntax.
+const REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
+
+export async function checkCachedOnBothNodes(
+  config: ClusterConfig,
+  repo: string,
+): Promise<{ ok: true } | { ok: false; missingOn: string[]; reason?: string }> {
+  if (!REPO_ID_RE.test(repo)) {
+    return {
+      ok: false,
+      missingOn: [],
+      reason: `"${repo}" is not a valid model repo id — expected org/name, e.g. mlx-community/Qwen3.6-9B-4bit`,
+    };
+  }
+  const dir = `~/.cache/huggingface/hub/models--${repo.replace("/", "--")}`;
+  const cmd = `test -d ${dir}`;
+  const missingOn: string[] = [];
+  const local = Bun.spawnSync(["sh", "-c", cmd]);
+  if (local.exitCode !== 0) missingOn.push("this Mac");
+  const remote = await runRemote(config.server.sshUser, config.server.ip, cmd, 10_000);
+  if (!remote.ok) missingOn.push(config.server.id);
+  return missingOn.length === 0 ? { ok: true } : { ok: false, missingOn };
+}
+
 export type Resolved =
   | { kind: "match"; repo: string }
   | { kind: "ambiguous"; repos: string[] }
