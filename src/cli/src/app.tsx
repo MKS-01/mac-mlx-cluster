@@ -7,6 +7,7 @@ import { switchModel } from "./switchModel";
 import { listServerModels, resolveModel, type CachedModel } from "./models";
 import { fetchNodeStats, combineStats, type NodeStats } from "./macmon";
 import { loadPrefs, savePrefs } from "./prefs";
+import { actualPct, formatSplit, parseSplit, type SplitTarget } from "./splitPolicy";
 import { windowMessages, estimateLines } from "./chatWindow";
 import { DIM } from "./theme";
 import { Header } from "./components/Header";
@@ -19,7 +20,7 @@ import { InputBar } from "./components/InputBar";
 const HEADER_LINES = 5; // Header.tsx: 2 wordmark rows, marginTop, version, hint
 const PANEL_FIXED_LINES = 2; // StatusPanel model + server rows (memory rows counted per view)
 const INPUT_LINES = 3; // InputBar's round border adds a row above and below
-const HELP_LINES = 7; // HelpView.tsx rows + its marginBottom
+const HELP_LINES = 9; // HelpView.tsx rows + its marginBottom
 const PADDING_LINES = 2; // App's paddingY={1} top+bottom
 const SAFETY_MARGIN = 1; // avoid the very last row (some terminals clip it)
 
@@ -34,6 +35,7 @@ interface State {
   modelList: CachedModel[] | null;
   switching: boolean;
   statsView: "combined" | "split";
+  splitTarget: SplitTarget;
   nodes: NodeStats[];
   quitting: boolean;
 }
@@ -49,6 +51,7 @@ type Action =
   | { type: "switching"; on: boolean }
   | { type: "clear" }
   | { type: "setStatsView"; view: "combined" | "split" }
+  | { type: "setSplitTarget"; target: SplitTarget }
   | { type: "stats"; nodes: NodeStats[] }
   | { type: "modelSwitched"; session: Session }
   | { type: "quitting" };
@@ -88,6 +91,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, history: [], streaming: null, error: null, notice: "transcript cleared", modelList: null };
     case "setStatsView":
       return { ...state, statsView: action.view };
+    case "setSplitTarget":
+      return { ...state, splitTarget: action.target };
     case "stats":
       return { ...state, nodes: action.nodes };
     case "modelSwitched":
@@ -101,10 +106,15 @@ export function App({
   config,
   session: initialSession,
   onQuit,
+  onActiveTime,
 }: {
   config: ClusterConfig;
   session: Session;
   onQuit: () => Promise<void>;
+  // Reports wall-clock ms spent actually generating (not idle between
+  // messages) after each exchange, so index.tsx can credit it to whichever
+  // node served this session for the wear-leveling split (splitPolicy.ts).
+  onActiveTime?: (deltaMs: number) => void;
 }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -121,6 +131,7 @@ export function App({
     modelList: null,
     switching: false,
     statsView: prefs.statsView ?? "combined",
+    splitTarget: prefs.splitTarget,
     nodes: [],
     quitting: false,
   });
@@ -171,6 +182,10 @@ export function App({
     const controller = new AbortController();
     abortRef.current = controller;
     const messages: ChatMessage[] = [...stateRef.current.history, { role: "user", content: text }];
+    // Wall time of the whole exchange (prompt processing + generation) is
+    // the proxy for actual GPU load this session put on whichever node
+    // served it — idle time waiting for the next message doesn't count.
+    const startedAt = Date.now();
     try {
       const reply = await streamChat({
         base: state.session.base,
@@ -178,8 +193,10 @@ export function App({
         signal: controller.signal,
         onToken: (chunk) => dispatch({ type: "token", chunk }),
       });
+      onActiveTime?.(Date.now() - startedAt);
       dispatch({ type: "done", reply });
     } catch (err) {
+      onActiveTime?.(Date.now() - startedAt);
       if (err instanceof ChatStreamError && err.message === "cancelled") {
         dispatch({ type: "done", reply: stateRef.current.streaming ?? "" });
         dispatch({ type: "notice", text: "cancelled" });
@@ -244,11 +261,45 @@ export function App({
     dispatch({ type: "switching", on: false });
     if (result.ok && result.session) {
       dispatch({ type: "modelSwitched", session: result.session });
-      savePrefs({ model: result.session.model, statsView: stateRef.current.statsView });
+      savePrefs({
+        model: result.session.model,
+        statsView: stateRef.current.statsView,
+        splitTarget: stateRef.current.splitTarget,
+        splitHistory: prefs.splitHistory,
+      });
       dispatch({ type: "notice", text: result.message });
     } else {
       dispatch({ type: "error", message: result.message });
     }
+  };
+
+  // /split — no arg shows the current target + actual share so far; with an
+  // arg (e.g. "60/40") sets a new target, effective from the *next* session
+  // (this session already committed to whichever node connect() picked).
+  const handleSplit = (arg: string | undefined) => {
+    if (!arg) {
+      const pct = actualPct(prefs.splitHistory);
+      dispatch({
+        type: "notice",
+        text:
+          `split target ${formatSplit(stateRef.current.splitTarget)} (${config.server.id}/${config.peer.id}) ` +
+          `· actual so far ${pct.server}/${pct.peer} (active-generation time)`,
+      });
+      return;
+    }
+    const parsed = parseSplit(arg);
+    if (!parsed) {
+      dispatch({ type: "error", message: `invalid split "${arg}" — use e.g. /split 60/40 (must sum to 100)` });
+      return;
+    }
+    dispatch({ type: "setSplitTarget", target: parsed });
+    savePrefs({
+      model: stateRef.current.session.model,
+      statsView: stateRef.current.statsView,
+      splitTarget: parsed,
+      splitHistory: prefs.splitHistory,
+    });
+    dispatch({ type: "notice", text: `split target set to ${formatSplit(parsed)} — applies from your next session` });
   };
 
   const handleCommand = (raw: string) => {
@@ -268,9 +319,17 @@ export function App({
       case "stats": {
         const next = state.statsView === "combined" ? "split" : "combined";
         dispatch({ type: "setStatsView", view: next });
-        savePrefs({ model: state.session.model, statsView: next });
+        savePrefs({
+          model: state.session.model,
+          statsView: next,
+          splitTarget: state.splitTarget,
+          splitHistory: prefs.splitHistory,
+        });
         break;
       }
+      case "split":
+        handleSplit(arg);
+        break;
       case "clear":
         dispatch({ type: "clear" });
         break;
