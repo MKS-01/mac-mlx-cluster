@@ -1,17 +1,23 @@
 import React, { useEffect, useReducer, useRef, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import type { Session } from "./cluster";
 import type { ClusterConfig } from "./config";
 import { streamChat, ChatStreamError, type ChatMessage } from "./chat";
 import { switchModel } from "./switchModel";
 import { fetchNodeStats, combineStats, type NodeStats } from "./macmon";
 import { loadPrefs, savePrefs } from "./prefs";
+import { windowMessages, estimateLines } from "./chatWindow";
 import { DIM } from "./theme";
 import { Header } from "./components/Header";
 import { StatsBar } from "./components/StatsBar";
 import { ChatView } from "./components/ChatView";
 import { HelpView } from "./components/HelpView";
 import { InputBar } from "./components/InputBar";
+
+const HEADER_LINES = 3; // Header.tsx: wordmark, tagline, mode/model
+const HELP_LINES = 7; // HelpView.tsx rows + its marginBottom
+const PADDING_LINES = 2; // App's paddingY={1} top+bottom
+const SAFETY_MARGIN = 1; // avoid the very last row (some terminals clip it)
 
 interface State {
   session: Session;
@@ -88,6 +94,7 @@ export function App({
   onQuit: () => Promise<void>;
 }) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const prefs = loadPrefs();
 
   const [state, dispatch] = useReducer(reducer, {
@@ -239,6 +246,24 @@ export function App({
     );
   }
 
+  const columns = stdout?.columns ?? 80;
+  const rows = stdout?.rows ?? 24;
+  // Stats bar height: 1 line combined, or 1 per node in split view (+ its
+  // own marginTop/marginBottom box = +2). Recomputed every render (stats
+  // poll, keystroke, token) so the budget always matches the current view.
+  const statsLines = (state.statsView === "combined" ? 1 : Math.max(1, state.nodes.length)) + 2;
+  const reserved =
+    HEADER_LINES +
+    statsLines +
+    (state.showHelp ? HELP_LINES : 0) +
+    (state.notice ? 1 : 0) +
+    1 + // input bar
+    PADDING_LINES +
+    SAFETY_MARGIN;
+  const chatBudget = Math.max(3, rows - reserved);
+  const streamingLines = state.streaming !== null ? estimateLines(state.streaming, columns) + 1 : 0;
+  const { visible, hiddenCount } = windowMessages(state.history, columns, Math.max(1, chatBudget - streamingLines));
+
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
       <Header mode={state.session.mode} model={state.session.model} />
@@ -253,7 +278,7 @@ export function App({
         </Box>
       )}
 
-      <ChatView history={state.history} streaming={state.streaming} error={state.error} />
+      <ChatView visible={visible} hiddenCount={hiddenCount} streaming={state.streaming} error={state.error} />
 
       <InputBar disabled={state.busy} onSubmit={handleSubmit} />
     </Box>
