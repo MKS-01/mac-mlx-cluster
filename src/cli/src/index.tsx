@@ -1,9 +1,22 @@
 import React from "react";
 import { render } from "ink";
+import { createInterface } from "node:readline/promises";
 import { App } from "./app";
-import { connect, disconnect, disconnectSync, type Session } from "./cluster";
+import { connect, connectPreferPeer, disconnect, disconnectSync, type Session } from "./cluster";
 import { loadConfig, ConfigError, type ClusterConfig } from "./config";
-import { loadPrefs } from "./prefs";
+import { loadPrefs, savePrefs } from "./prefs";
+import { recommend, actualPct, formatSplit } from "./splitPolicy";
+import { fetchNodeStats } from "./macmon";
+
+// Thresholds for the startup wear-leveling check (fractions, matching
+// macmon's cpu_usage_pct / gpu_usage[1]): below IDLE, the peer is clearly
+// free and we just take over silently; at/above BUSY, something else is
+// already loading it and we back off without even asking; the gap between
+// is genuinely ambiguous, so that's the only case that prompts.
+const IDLE_CPU_PCT = 0.15;
+const IDLE_GPU_PCT = 0.1;
+const BUSY_CPU_PCT = 0.35;
+const BUSY_GPU_PCT = 0.25;
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -21,8 +34,22 @@ function parseArgs() {
 const dim = (s: string) => `\x1b[38;2;128;128;128m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[38;2;255;93;93m${s}\x1b[0m`;
 
+async function confirmPrompt(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(question)).trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
 let session: Session | null = null;
 let shutdownDone = false;
+// Wall time this session actually spent generating (reported by App via
+// onActiveTime) — credited to whichever node served, on the way out, as the
+// wear-leveling split's usage metric (see splitPolicy.ts).
+let sessionActiveMs = 0;
 
 let config: ClusterConfig;
 try {
@@ -32,11 +59,23 @@ try {
   process.exit(1);
 }
 
+function persistActiveTime(): void {
+  if (!session || sessionActiveMs <= 0) return;
+  // Reload fresh rather than reusing the startup snapshot — /split may have
+  // changed the target mid-session, and we don't want to clobber that.
+  const fresh = loadPrefs();
+  const minutes = sessionActiveMs / 60000;
+  if (session.mode === "cluster") fresh.splitHistory.serverMinutes += minutes;
+  else fresh.splitHistory.peerMinutes += minutes;
+  savePrefs(fresh);
+}
+
 // Normal quit path (Ctrl+C, /quit, SIGTERM) — can await the SSH round trip
 // needed to bootout a server this session started (see cluster.ts).
 async function shutdown(): Promise<void> {
   if (shutdownDone) return;
   shutdownDone = true;
+  persistActiveTime();
   await disconnect(config, session);
 }
 
@@ -46,6 +85,11 @@ async function shutdown(): Promise<void> {
 function shutdownSyncFallback(): void {
   if (shutdownDone) return;
   shutdownDone = true;
+  try {
+    persistActiveTime();
+  } catch {
+    // best-effort only — never let cleanup crash the exit path
+  }
   disconnectSync(config, session);
 }
 
@@ -67,15 +111,58 @@ process.on("uncaughtException", (err) => {
 const { model } = parseArgs();
 const prefs = loadPrefs();
 
+// Wear-leveling: decide whether this session should serve from the peer
+// (this Mac) instead of the server node, per splitPolicy.ts's recommendation
+// — then sanity-check that against what the peer is actually doing right
+// now before acting on it, so we never steal a Mac that's mid-task for
+// something unrelated, and don't bother asking when the answer is obvious.
+let usePeer = false;
+if (recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
+  const pct = actualPct(prefs.splitHistory);
+  const splitLine =
+    `wear-leveling: actual split ${pct.server}/${pct.peer} vs target ${formatSplit(prefs.splitTarget)} ` +
+    `(${config.server.id}/${config.peer.id}) — ${config.peer.id}'s turn to serve.`;
+
+  const peerStats = await fetchNodeStats(config.peer.id, config.peer.ip, config.peer.macmonPort);
+  const cpuPct = peerStats.snapshot?.cpu_usage_pct ?? 0;
+  const gpuPct = peerStats.snapshot?.gpu_usage[1] ?? 0;
+
+  if (cpuPct >= BUSY_CPU_PCT || gpuPct >= BUSY_GPU_PCT) {
+    console.log(
+      dim(
+        `${splitLine} Skipping for now — ${config.peer.id} looks busy with something else ` +
+          `(cpu ${(cpuPct * 100).toFixed(0)}%, gpu ${(gpuPct * 100).toFixed(0)}%).`,
+      ),
+    );
+  } else if (cpuPct <= IDLE_CPU_PCT && gpuPct <= IDLE_GPU_PCT) {
+    console.log(dim(`${splitLine} ${config.peer.id} is idle — serving locally.`));
+    usePeer = true;
+  } else {
+    console.log(dim(splitLine));
+    usePeer = await confirmPrompt(dim(`Serve from ${config.peer.id} for this session? [y/N] `));
+  }
+}
+
 try {
-  session = await connect(config, model ?? prefs.model ?? undefined, (line) => console.log(dim(line)));
+  session = usePeer
+    ? await connectPreferPeer(config, model ?? prefs.model ?? undefined, (line) => console.log(dim(line)))
+    : await connect(config, model ?? prefs.model ?? undefined, (line) => console.log(dim(line)));
 } catch (err) {
   console.error(red(String(err instanceof Error ? err.message : err)));
   process.exit(1);
 }
 
 console.clear();
-const ink = render(<App config={config} session={session} onQuit={shutdown} />);
+const ink = render(
+  <App
+    config={config}
+    session={session}
+    onQuit={shutdown}
+    onActiveTime={(ms) => {
+      sessionActiveMs += ms;
+    }}
+  />,
+);
 
 // On resize the previous frame re-wraps, so ink erases the wrong number of
 // lines and stale copies pile up. Run BEFORE ink's own resize handler

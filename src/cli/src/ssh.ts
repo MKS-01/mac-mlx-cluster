@@ -180,3 +180,25 @@ export function bootoutRemoteSync(user: string, ip: string, serviceLabel: string
     // best-effort only — never let cleanup crash the exit path
   }
 }
+
+/**
+ * Synchronous, best-effort re-bootstrap — the crash-safety counterpart to
+ * bootstrapRemote, used when a wear-leveling session that stopped the M1's
+ * server (see splitPolicy.ts) exits abnormally. Falls back to kickstart if
+ * already bootstrapped, same as the async version.
+ */
+export function bootstrapRemoteSync(user: string, ip: string, plistPath: string, serviceLabel: string): void {
+  try {
+    Bun.spawnSync(
+      [
+        "ssh",
+        ...SSH_OPTS,
+        `${user}@${ip}`,
+        `launchctl bootstrap gui/$(id -u) ${plistPath} || launchctl kickstart -k gui/$(id -u)/${serviceLabel}`,
+      ],
+      { stdout: "ignore", stderr: "ignore" },
+    );
+  } catch {
+    // best-effort only — never let cleanup crash the exit path
+  }
+}
