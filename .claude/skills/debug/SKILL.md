@@ -72,8 +72,15 @@ ssh <sshUser>@<server-ip> 'launchctl print gui/$(id -u)/com.mlx-server' | head -
 ssh <sshUser>@<server-ip> 'tail -50 ~/Library/Logs/mlx-server.log'
 ```
 Look in the log for an offline-cache miss (`HF_HUB_OFFLINE=1` means an
-uncached model repo fails to load rather than downloading) or a port
-conflict.
+uncached model repo fails to load rather than downloading), a port
+conflict, or:
+```
+[WARNING] Generating with a model that requires ... This can be slow
+```
+That specific warning means the model is at or past the wired-memory
+ceiling (`iogpu.wired_limit_mb`) and fell back to slower paged memory —
+not a random slowdown. Run `mlxctl meminfo <repo>` on that Mac to confirm,
+and see `doc/CLUSTER_SETUP.md` §9 to raise and persist the limit.
 
 ## 5. Is the wrong Mac serving?
 

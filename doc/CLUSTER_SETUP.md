@@ -210,6 +210,43 @@ python3 src/cluster/chat.py                # default server http://10.0.0.1:8080
 python3 src/cluster/chat.py --url http://localhost:8080   # or set $MLX_SERVER_URL
 ```
 
+## 9. Wired-memory limit (large models on the server Mac)
+
+`mlx_lm.server` already wires each generation's memory automatically —
+`mlx_lm/generate.py`'s `wired_limit()` context manager calls
+`mx.set_wired_limit(mx.device_info()["max_recommended_working_set_size"])`
+before every request. Nothing to configure there. What *does* need
+attention is the **OS ceiling** that value is capped by: the sysctl
+`iogpu.wired_limit_mb` (macOS 15+ only). Check it:
+
+```sh
+mlxctl meminfo               # total RAM, MLX's max recommended working set, current sysctl value
+mlxctl meminfo <repo>        # + a fit verdict for one cached model
+```
+
+If a model is close to or over the ceiling, `mlx_lm.server`'s log
+(`~/Library/Logs/mlx-server.log`) will show
+`[WARNING] Generating with a model that requires ... This can be slow`
+and fall back to slower paged memory instead of wiring the model in.
+
+Raise the ceiling:
+
+```sh
+sudo sysctl iogpu.wired_limit_mb=N   # N in MB — bigger than the model, smaller than total RAM
+```
+
+This **does not survive a reboot** on its own. To persist it, install
+[`wired-limit.example.plist`](../src/cluster/wired-limit.example.plist) as a
+**LaunchDaemon** (system domain — unlike the server's LaunchAgent above, this
+one doesn't need a logged-in GUI session to load):
+
+```sh
+# edit wired-limit.example.plist first — replace N with your chosen megabyte value
+scp src/cluster/wired-limit.example.plist <user>@10.0.0.1:/tmp/
+ssh <user>@10.0.0.1 'sudo cp /tmp/wired-limit.example.plist /Library/LaunchDaemons/com.mlx-wired-limit.plist && \
+  sudo launchctl bootstrap system /Library/LaunchDaemons/com.mlx-wired-limit.plist'
+```
+
 ## Backend choice: ring, not jaccl
 
 The WWDC demo uses `--backend jaccl` (RDMA over Thunderbolt 5). JACCL requires

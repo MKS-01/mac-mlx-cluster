@@ -47,6 +47,33 @@ also see in-progress downloads). This cache is shared and load-bearing:
 both `mlx_lm.server` (offline mode) and the CLI's `/model` command treat
 "what's in this cache" as the hard source of truth for what can be served.
 
+### Wired-memory limit (`mlxctl meminfo`)
+
+Two layers, easy to conflate:
+
+- **Per-generation wiring is already automatic inside `mlx_lm`** — its
+  `wired_limit()` context manager (in `mlx-lm`, not this repo) calls
+  `mx.set_wired_limit(mx.device_info()["max_recommended_working_set_size"])`
+  before every generation and restores the previous value after. Nothing
+  in this repo needs to touch that.
+- **The OS-level ceiling is what actually gates it**: `max_recommended_working_set_size`
+  is itself capped by the macOS 15+ sysctl `iogpu.wired_limit_mb`, which
+  resets on every reboot and was previously invisible anywhere in this
+  repo. If a model is close to or past it, `mlx_lm.server`'s log
+  (`~/Library/Logs/mlx-server.log`) shows
+  `[WARNING] Generating with a model that requires ... This can be slow`
+  and falls back to slower paged memory.
+
+`mlxctl meminfo [repo]` surfaces both layers on whichever Mac it's run on:
+total RAM and `max_recommended_working_set_size` (from `mx.device_info()`,
+via a one-shot subprocess into the venv's Python — `mlxctl` itself has no
+hard MLX dependency), the live `iogpu.wired_limit_mb`, and — given a cached
+repo — a fits/near-ceiling/exceeds verdict using the same 90%-of-ceiling
+threshold `mlx-lm` warns at internally. `doc/CLUSTER_SETUP.md` §9 covers
+raising and persisting the sysctl (`wired-limit.example.plist`, a
+LaunchDaemon rather than the server's LaunchAgent, so it doesn't need a
+logged-in GUI session to load).
+
 ## `src/cli` — mlx-cluster-cli
 
 Bun + TypeScript + Ink terminal client. Fully standalone (own

@@ -66,3 +66,26 @@ serving back to the m1, without asking.
    trigger to prefer moving back, or only "the peer got busy" as designed.
 3. Go/no-go on the `StatusPanel` label distinction and the `/migrate`
    command, called out above as optional.
+
+## `CLUSTER_SETUP.md` §9 — verify wired-memory limit persistence on real hardware
+
+**Status:** tooling shipped (`mlxctl meminfo`, `wired-limit.example.plist`,
+`CLUSTER_SETUP.md` §9, updated `debug`/`model-fit` skills) — see
+`ARCHITECTURE.md`'s "Wired-memory limit" section for the design and why
+it's shaped this way (MLX's own per-generation wiring vs. the OS-level
+`iogpu.wired_limit_mb` ceiling this repo didn't previously surface at all).
+
+Two things remain that need the actual M1 hardware, not just source
+research, to close out:
+
+1. **Confirm the LaunchDaemon actually loads without a GUI session.**
+   `wired-limit.example.plist` is installed via
+   `launchctl bootstrap system ...` (the `system` domain) specifically to
+   avoid the existing LaunchAgent's "needs a logged-in GUI user" gotcha
+   (`mlx-server.example.plist`, `CLUSTER_SETUP.md` §8) — but that's a
+   design assumption, not yet verified against a fresh boot on the M1.
+2. **Pick and set the real wired-limit value on the M1.** Run
+   `mlxctl meminfo` there first to see its actual current
+   `iogpu.wired_limit_mb` (don't assume a default), then choose a value
+   comfortably above the largest model expected to run there and below
+   its 32GB total, per `CLUSTER_SETUP.md` §9.

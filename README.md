@@ -78,6 +78,7 @@ ln -s "$PWD/src/mlxctl" ~/.venvs/mlx/bin/mlxctl
 | `mlxctl clean [repo]` | Clear stale locks / kill a stuck download + drop partials |
 | `mlxctl run <repo> [args]` | Launch `mlx_lm.chat` (repo accepts a unique substring, e.g. `9b`) |
 | `mlxctl search <query>` | Search `mlx-community` on the Hub |
+| `mlxctl meminfo [repo]` | This Mac's wired-memory ceiling (+ a fit verdict for a cached model) |
 
 **Configuration** (optional env vars):
 - `MLX_VENV` — path to the MLX virtualenv (default `~/.venvs/mlx`). `mlxctl` invokes

@@ -9,6 +9,7 @@ Commands:
   clean [repo]          Kill stale downloads, clear locks, drop partials
   run <repo> [args...]  Launch mlx_lm.chat on a model (passes extra args through)
   search <query>        Search mlx-community on the Hub
+  meminfo [repo]        Show this Mac's MLX wired-memory ceiling (+ fit verdict for repo)
 
 Repo can be the full id (mlx-community/Qwen3.5-9B-4bit) or a unique
 substring of one already in the cache (e.g. "9b", "3.6").
@@ -25,6 +26,7 @@ from pathlib import Path
 VENV_BIN = Path(os.environ.get("MLX_VENV", str(Path.home() / ".venvs/mlx"))) / "bin"
 HF = str(VENV_BIN / "hf") if (VENV_BIN / "hf").exists() else "hf"
 CHAT = str(VENV_BIN / "mlx_lm.chat") if (VENV_BIN / "mlx_lm.chat").exists() else "mlx_lm.chat"
+PYTHON = str(VENV_BIN / "python") if (VENV_BIN / "python").exists() else "python3"
 # HF cache location honors HF_HOME if set, else the default.
 HUB = Path(os.environ.get("HF_HOME", str(Path.home() / ".cache/huggingface"))) / "hub"
 LOCKS = HUB / ".locks"
@@ -259,6 +261,71 @@ def cmd_search(args):
         print("  " + cyn(i))
     print(dim(f"\n{len(ids)} result(s) — download with: mlxctl download <repo>"))
 
+# mlx-lm's own generate.py warns when a model needs more than this fraction
+# of the recommended working set — mirrored here so mlxctl's verdict matches
+# the warning you'd actually see in the server log.
+WIRED_WARN_FRACTION = 0.9
+
+def device_info():
+    """mx.device_info() from the venv's MLX, run out-of-process so mlxctl
+    itself has no hard dependency on mlx being importable in its own env."""
+    script = "import json, mlx.core as mx; print(json.dumps(mx.device_info()))"
+    try:
+        out = subprocess.run([PYTHON, "-c", script], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        die(f"couldn't run MLX to read device info: {e}")
+    if out.returncode != 0:
+        die("mx.device_info() failed — is mlx installed in this venv?\n" + out.stderr.strip())
+    return json.loads(out.stdout)
+
+def wired_limit_mb():
+    """Live OS ceiling (sysctl iogpu.wired_limit_mb). None if unavailable
+    (pre-macOS 15, or non-Apple-Silicon)."""
+    out = subprocess.run(["sysctl", "-n", "iogpu.wired_limit_mb"], capture_output=True, text=True)
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    try:
+        return int(out.stdout.strip())
+    except ValueError:
+        return None
+
+def cmd_meminfo(args):
+    info = device_info()
+    total = info["memory_size"]
+    max_rec = info["max_recommended_working_set_size"]
+    wired_mb = wired_limit_mb()
+
+    print(bold(info.get("device_name", "this Mac")) + dim(f"  ({info.get('architecture', '?')})"))
+    print(f"  total RAM              : {bold(human(total))}")
+    print(f"  max recommended wired  : {bold(human(max_rec))}" + dim(f"  ({max_rec / total:.0%} of RAM)"))
+    if wired_mb is None:
+        print(f"  OS wired limit (sysctl): {dim('unavailable (needs macOS 15+)')}")
+    elif wired_mb == 0:
+        print(f"  OS wired limit (sysctl): {dim('0 — no explicit override; system default applies')}")
+    else:
+        wired_bytes = wired_mb * 1024 * 1024
+        note = dim(" (resets on reboot unless persisted — see doc/ROADMAP.md)")
+        print(f"  OS wired limit (sysctl): {bold(human(wired_bytes))}{note}")
+
+    if not args:
+        print(dim("\nPass a repo (mlxctl meminfo <repo>) to check whether it fits and wires cleanly."))
+        return
+
+    repo = resolve(args[0]); d = repo_to_dir(repo)
+    if not d.exists():
+        die(f"not in cache: {repo}. Use the real size once downloaded, or estimate before downloading "
+            "via the model-fit skill.")
+    size = real_size(d)
+    threshold = WIRED_WARN_FRACTION * max_rec
+    print(f"\n{cyn(repo)}  {dim(human(size))}")
+    if size > max_rec:
+        print(f"  {red('✗')} exceeds the max recommended working set — will not wire cleanly on this Mac")
+    elif size > threshold:
+        print(f"  {yel('⚠')} within {WIRED_WARN_FRACTION:.0%} of the ceiling — mlx-lm will print its own "
+              f"\"[WARNING] Generating with a model that requires...\" and may fall back to slower paged memory")
+    else:
+        print(f"  {grn('✓')} fits comfortably under the wired ceiling")
+
 CMDS = {
     "list": cmd_list, "ls": cmd_list,
     "status": cmd_status, "st": cmd_status,
@@ -267,6 +334,7 @@ CMDS = {
     "clean": cmd_clean,
     "run": cmd_run,
     "search": cmd_search,
+    "meminfo": cmd_meminfo, "mem": cmd_meminfo,
 }
 
 def main():

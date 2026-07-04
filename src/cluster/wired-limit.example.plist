@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Persists a raised iogpu.wired_limit_mb across reboots — plain `sudo sysctl
+  iogpu.wired_limit_mb=N` only lasts until the next reboot.
+
+  This is a LaunchDaemon (system domain, root), not a LaunchAgent like
+  mlx-server.example.plist — it does not need a logged-in GUI session to
+  load, unlike the server LaunchAgent's `launchctl bootstrap gui/$(id -u)`.
+
+  Edit before installing:
+  - N below: megabytes, larger than the biggest model you'll wire on this
+    Mac and smaller than total RAM. Check current values first:
+      mlxctl meminfo
+    (shows total RAM, MLX's max recommended working set, and the current
+    sysctl value.)
+
+  Install (as root, from /Library/LaunchDaemons — not ~/Library/LaunchAgents):
+    sudo cp wired-limit.example.plist /Library/LaunchDaemons/com.mlx-wired-limit.plist
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.mlx-wired-limit.plist
+
+  Verify it took effect: mlxctl meminfo (or `sysctl iogpu.wired_limit_mb`) after a reboot.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mlx-wired-limit</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/sbin/sysctl</string>
+        <string>iogpu.wired_limit_mb=N</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
