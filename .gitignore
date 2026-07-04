@@ -19,7 +19,7 @@ venv/
 *.err
 
 # Real cluster hostfile (contains usernames/IPs) — commit only the .example
-cluster/hostfile.json
+src/cluster/hostfile.json
 
 # Personal reference screenshots / scratch — not for the repo
 sample/

@@ -12,10 +12,11 @@ Apple Silicon — on a single Mac, or distributed across a two-Mac cluster.
 
 | File | What it is |
 |------|------------|
-| [`mlxctl`](./mlxctl) | A colorful CLI to list, download, inspect, and clean cached MLX/Hugging Face models |
-| [`MLX_QUICKSTART.md`](./MLX_QUICKSTART.md) | Get `mlx-lm` running and chat with a model in a few commands |
-| [`cluster/CLUSTER_SETUP.md`](./cluster/CLUSTER_SETUP.md) | Verified two-Mac cluster walkthrough: Thunderbolt bridge, SSH, hostfile, distributed smoke tests, and an always-on model server |
-| [`cluster/chat.py`](./cluster/chat.py) | Zero-dependency interactive chat client for any OpenAI-compatible endpoint |
+| [`src/mlxctl`](./src/mlxctl) | A colorful CLI to list, download, inspect, and clean cached MLX/Hugging Face models |
+| [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) | Get `mlx-lm` running and chat with a model in a few commands |
+| [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) | Verified two-Mac cluster walkthrough: Thunderbolt bridge, SSH, hostfile, distributed smoke tests, and an always-on model server |
+| [`src/cluster/chat.py`](./src/cluster/chat.py) | Zero-dependency interactive chat client for any OpenAI-compatible endpoint |
+| [`src/cli/`](./src/cli/) | `mlx-cluster-cli` — terminal chat client + lifecycle manager for the cluster (Bun/TypeScript/Ink) |
 
 ## Quick start
 
@@ -33,14 +34,14 @@ Chat with a model:
 mlx_lm.chat --model mlx-community/Qwen3.5-9B-4bit --max-tokens 2048
 ```
 
-See [`MLX_QUICKSTART.md`](./MLX_QUICKSTART.md) for details.
+See [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) for details.
 
 ## `mlxctl`
 
 Make it available on your PATH (e.g. symlink into your venv's bin):
 
 ```sh
-ln -s "$PWD/mlxctl" ~/.venvs/mlx/bin/mlxctl
+ln -s "$PWD/src/mlxctl" ~/.venvs/mlx/bin/mlxctl
 ```
 
 | Command | Description |
@@ -60,7 +61,7 @@ ln -s "$PWD/mlxctl" ~/.venvs/mlx/bin/mlxctl
 
 ## Cluster cheat sheet
 
-Assumes the two-Mac setup from [`cluster/CLUSTER_SETUP.md`](./cluster/CLUSTER_SETUP.md)
+Assumes the two-Mac setup from [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md)
 (server Mac = `10.0.0.1` on the Thunderbolt bridge, `<user>` = your username).
 
 **Model server** (LaunchAgent on the server Mac):
@@ -71,7 +72,7 @@ ssh <user>@10.0.0.1 'launchctl bootout gui/$(id -u)/com.mlx-server'       # stop
 ssh <user>@10.0.0.1 'launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mlx-server.plist'  # re-enable
 ssh <user>@10.0.0.1 'tail -20 ~/Library/Logs/mlx-server.log'              # logs
 curl -s http://10.0.0.1:8080/v1/models                                    # health check
-python3 cluster/chat.py                                                   # interactive chat
+python3 src/cluster/chat.py                                               # interactive chat
 ```
 
 **Networking:**
@@ -109,9 +110,9 @@ mlx.launch --hostfile ~/.mlx/tb-ring-hostfile.json --backend ring \
 ## Development
 
 ```sh
-~/.venvs/mlx/bin/pip install -r requirements.txt -r requirements-dev.txt
-ruff check mlxctl      # lint
-ruff format mlxctl     # format
+~/.venvs/mlx/bin/pip install -r src/requirements.txt -r src/requirements-dev.txt
+ruff check src/mlxctl      # lint
+ruff format src/mlxctl     # format
 ```
 
 ## License

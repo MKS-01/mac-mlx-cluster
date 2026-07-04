@@ -35,7 +35,7 @@ two-Mac MLX cluster as a single tool:
   swap the served model later, without restarting the CLI.
 - **Chat is a first-class mode** — not just a monitoring dashboard. The CLI
   is a full chat client against the served model (streaming, multi-turn),
-  built on the same request/response shape as the existing `cluster/chat.py`,
+  built on the same request/response shape as the existing `src/cluster/chat.py`,
   just inside the Ink UI instead of a stdlib REPL.
 - **Live system stats bar** — CPU, GPU/CPU temp, RAM usage at the top of the
   screen, both **combined** (cluster total) and **split per Mac**, plus total
@@ -47,8 +47,8 @@ two-Mac MLX cluster as a single tool:
 |---|---|---|
 | Bun + TypeScript + Ink CLI shell | Yes | Same screen-reducer pattern (`input`/`busy`/`chat`/`quitting`), same resize-repaint fix, same standalone-binary build (`bun build --compile`). |
 | Design system (`design-system/tokens`, Ghost palette, `theme.ts`) | Yes | Import the same tokens; this becomes a second consumer of the shared design system (arguably worth promoting `design-system/` to its own package if a third project shows up). |
-| Server spawn/health-check/kill lifecycle (`cli/src/server.ts`) | Adapt | Same shape, different target: instead of spawning a local FastAPI process, it SSHes to start/stop the M1's `mlx_lm.server` LaunchAgent (`launchctl kickstart` / `bootout`) and health-checks `GET /v1/models` over the Thunderbolt bridge. |
-| `/ws` protocol + FastAPI server | **No** — not needed | `mlx_lm.server` already speaks OpenAI-compatible REST + SSE streaming; no need to build a bespoke WebSocket server like readback's. The CLI talks directly to `mlx_lm.server`, the way `cluster/chat.py` already does. |
+| Server spawn/health-check/kill lifecycle (`src/cli/src/server.ts`) | Adapt | Same shape, different target: instead of spawning a local FastAPI process, it SSHes to start/stop the M1's `mlx_lm.server` LaunchAgent (`launchctl kickstart` / `bootout`) and health-checks `GET /v1/models` over the Thunderbolt bridge. |
+| `/ws` protocol + FastAPI server | **No** — not needed | `mlx_lm.server` already speaks OpenAI-compatible REST + SSE streaming; no need to build a bespoke WebSocket server like readback's. The CLI talks directly to `mlx_lm.server`, the way `src/cluster/chat.py` already does. |
 | Prefs persistence (`~/.config/.../cli.json`) | Yes | Same pattern for last-used model, split/combined stats view, chat history. |
 
 **Net new work is small**: mostly an Ink UI (chat pane + stats bar + slash
@@ -98,7 +98,7 @@ on CLI start:
   render stats bar for whichever node(s) are actually live
 ```
 
-This mirrors the existing Pattern A design (`cluster/CLUSTER_SETUP.md` §8) —
+This mirrors the existing Pattern A design (`doc/CLUSTER_SETUP.md` §8) —
 the CLI is really just a smarter front-end over "is the server up, if not
 start one," extended to pick *which* Mac hosts it.
 
