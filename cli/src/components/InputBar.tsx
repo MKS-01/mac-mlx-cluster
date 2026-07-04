@@ -5,9 +5,11 @@ import { BLUE, DIM } from "../theme";
 
 export function InputBar({
   disabled,
+  busyText,
   onSubmit,
 }: {
   disabled: boolean;
+  busyText?: string;
   onSubmit: (value: string) => void;
 }) {
   const [value, setValue] = useState("");
@@ -18,10 +20,10 @@ export function InputBar({
   };
 
   return (
-    <Box>
-      <Text color={BLUE}>{"> "}</Text>
+    <Box borderStyle="round" borderColor={DIM} paddingX={1}>
+      <Text color={BLUE}>{"❯ "}</Text>
       {disabled ? (
-        <Text color={DIM}>waiting for reply… (Ctrl+C to cancel)</Text>
+        <Text color={DIM}>{busyText ?? "waiting for reply… (esc to cancel)"}</Text>
       ) : (
         <TextInput
           value={value}
@@ -36,6 +38,7 @@ export function InputBar({
             else setValue(v);
           }}
           onSubmit={submit}
+          placeholder="message the model…  (/help for commands)"
         />
       )}
     </Box>
