@@ -91,7 +91,10 @@ export async function startDistributedServer(
         "--",
         join(config.venvPath, "bin", "mlx_lm.server"),
         "--model", model,
-        "--host", "0.0.0.0",
+        // Bind rank 0's bridge IP only — same principle as Pattern A's
+        // LaunchAgent (never 0.0.0.0), so a sharded session doesn't expose
+        // an unauthenticated chat API to Wi-Fi/LAN.
+        "--host", ip,
         "--port", String(config.localApiPort),
       ],
       { stdin: "ignore", stdout: "ignore", stderr: "pipe" },
@@ -164,6 +167,7 @@ export function stopDistributedServerSync(handle: DistributedServerHandle | null
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-o", "StrictHostKeyChecking=accept-new",
+        "--",
         `${config.server.sshUser}@${config.server.ip}`,
         killRemoteRankCmd(),
       ],
