@@ -8,9 +8,14 @@
 It started on a weekend out of curiosity: could an M-series Mac actually run a
 real LLM locally, no cloud involved? `mlx_lm.chat` said yes. That led to a
 second question — could two idle Macs do more together than either one
-alone? A Thunderbolt cable, a lot of trial and error, and a few very
-literal "why did that just hang for two minutes" debugging sessions later,
-the answer was also yes.
+alone? First attempt was [exo](https://github.com/exo-explore/exo) — it
+worked. Then [WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/)
+showed the MLX-native way to do the same thing with `mlx.launch`, and the
+part of me that would rather automate a setup than repeat it by hand
+decided the exo detour needed converting over — and, while at it, wrapping
+in an actual terminal CLI instead of raw commands. A Thunderbolt cable, a
+lot of trial and error, and a few very literal "why did that just hang for
+two minutes" debugging sessions later, all of it worked.
 
 This repo is what came out of that weekend, kept going: tooling and guides
 for running [MLX](https://github.com/ml-explore/mlx) LLMs on Apple Silicon —
