@@ -1,8 +1,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { DIM, FG } from "../theme";
-import type { Session } from "../cluster";
-import type { NodeStats, CombinedStats } from "../macmon";
+import type { Session } from "../../cluster/cluster";
+import type { NodeStats, CombinedStats } from "../../net/macmon";
 import { StatsBar } from "./StatsBar";
 
 // Left-hand label column width ("memory" is the longest label + 2 gap).

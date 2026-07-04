@@ -1,8 +1,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { DIM, FG, BLUE, RED } from "../theme";
-import type { ChatMessage } from "../chat";
-import { cleanBody } from "../chatWindow";
+import type { ChatMessage } from "../../chat/chat";
+import { cleanBody } from "../../chat/chatWindow";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
 // One transcript row: a fixed 2-col marker gutter + a flex content box, so

@@ -63,7 +63,7 @@ Two config files, both under `~/.mlx/` (outside the repo):
   model used, stats view (combined/split), and the wear-leveling split
   target + accumulated history (below).
 
-### Mode decision (`cluster.ts:connect`)
+### Mode decision (`src/cluster/cluster.ts:connect`)
 
 On launch: HTTP-check the m1 → if down, SSH in and bootstrap/kickstart its
 LaunchAgent → if that also fails (bridge down, m1 asleep), spawn
@@ -73,7 +73,7 @@ LaunchAgent → if that also fails (bridge down, m1 asleep), spawn
 it created — Pattern A's server is meant to stay always-on shared
 infrastructure that an ordinary session never assumes ownership of.
 
-### Wear-leveling split (`splitPolicy.ts`, `cluster.ts:connectPreferPeer`)
+### Wear-leveling split (`src/cluster/splitPolicy.ts`, `src/cluster/cluster.ts:connectPreferPeer`)
 
 Because uneven tensor-parallel splits don't work (see Pattern B above), load
 balancing between the two Macs happens at the *whole-session* level instead:
@@ -94,17 +94,17 @@ Whichever Mac took over restores the other's LaunchAgent on quit
 the process-exit handler) — Pattern A's always-on invariant holds again
 once the session ends.
 
-### `/model` switching (`models.ts`, `switchModel.ts`)
+### `/model` switching (`src/models/models.ts`, `src/models/switchModel.ts`)
 
 Lists/resolves against the HF cache actually present on the *serving* node
 (`du` over SSH in cluster mode, local `du` in local mode) — never a static
 list — because the server runs offline-only, so switching to an uncached
 repo would just break on restart. Cluster mode edits the remote LaunchAgent
-plist (`ssh.ts:setRemoteModel`, via a small inline Python/`plistlib` script
+plist (`src/net/ssh.ts:setRemoteModel`, via a small inline Python/`plistlib` script
 to avoid hand-editing XML) and `launchctl kickstart`s it; local mode kills
 and respawns the CLI's own process.
 
-### Chat streaming (`chat.ts`)
+### Chat streaming (`src/chat/chat.ts`)
 
 Talks to `mlx_lm.server`'s OpenAI-compatible SSE endpoint. Reasoning models
 (Qwen3.6's thinking mode) stream internal reasoning under a separate
@@ -114,7 +114,7 @@ budget before any real content is emitted. The client detects this
 (`finish_reason: "length"` with zero content chunks) and surfaces a clear
 error instead of silently rendering an empty reply.
 
-### Rendering (`app.tsx`, `chatWindow.ts`)
+### Rendering (`src/ui/app.tsx`, `src/chat/chatWindow.ts`)
 
 Ink has no real scroll region, so `<Static>` (which permanently flushes to
 terminal scrollback) would push the header/stats panel off-screen as the
@@ -147,5 +147,11 @@ you ──▶ mlx-cluster-cli (wherever it runs)
 - `src/mlxctl`, `src/requirements*.txt` — Python cache-management tool.
 - `src/cluster/` — distributed-MLX smoke-test scripts and example configs
   (hostfile, LaunchAgent plist) referenced by `CLUSTER_SETUP.md`.
-- `src/cli/` — the TypeScript chat client described above.
+- `src/cli/` — the TypeScript chat client described above, organized by
+  domain under `src/cli/src/`: `config/` (static + dynamic config),
+  `net/` (ssh/server/macmon — talking to the Macs), `cluster/` (mode
+  decision + wear-leveling policy — unrelated to the Python `src/cluster/`
+  above despite the shared name), `models/` (cache listing + `/model`
+  switching), `chat/` (SSE streaming + transcript windowing), `ui/`
+  (Ink `app.tsx`, theme, and `components/`). `index.tsx` is the entry point.
 - `CLAUDE.md`, `README.md`, `LICENSE` — repo root.

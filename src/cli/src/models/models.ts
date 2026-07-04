@@ -1,6 +1,6 @@
-import type { ClusterConfig } from "./config";
-import type { Session } from "./cluster";
-import { runRemote } from "./ssh";
+import type { ClusterConfig } from "../config/config";
+import type { Session } from "../cluster/cluster";
+import { runRemote } from "../net/ssh";
 
 export interface CachedModel {
   repo: string; // org/name

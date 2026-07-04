@@ -1,12 +1,12 @@
-import type { ClusterConfig } from "./config";
-import { isServerUp, pollUntilHealthy, startLocalServer, stopLocalServer, type LocalServerHandle } from "./server";
+import type { ClusterConfig } from "../config/config";
+import { isServerUp, pollUntilHealthy, startLocalServer, stopLocalServer, type LocalServerHandle } from "../net/server";
 import {
   sshReachable,
   bootstrapRemote,
   bootstrapRemoteSync,
   bootoutRemote,
   bootoutRemoteSync,
-} from "./ssh";
+} from "../net/ssh";
 
 export type Mode = "cluster" | "local";
 // cluster: "attached" — server was already running, ours to use but not to stop

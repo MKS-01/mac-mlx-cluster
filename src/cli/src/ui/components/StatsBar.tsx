@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { DIM, FG, GREEN, YELLOW, RED } from "../theme";
 import { pressureColor } from "../colorScale";
-import type { NodeStats, CombinedStats } from "../macmon";
+import type { NodeStats, CombinedStats } from "../../net/macmon";
 
 function gb(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);

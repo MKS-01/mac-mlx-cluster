@@ -47,7 +47,7 @@ Prefer the newest Qwen (3.6 > 3.5). For 48 GB: 4bit ≈ 15 GB, 6bit ≈ 21 GB, 8
 
 ## `src/cli/` — mlx-cluster-cli (terminal chat client)
 
-Standalone Bun/TypeScript/Ink project living inside this repo — its own `package.json`/lockfile/tsconfig/`.gitignore`, no root-level workspace tooling ties it to the Python side. **See `doc/ARCHITECTURE.md` for the design** (mode decision, wear-leveling split, `/model` switching, why Ink rendering uses a fixed line budget instead of a scroll region) — don't touch line-budget constants in `app.tsx` (`HEADER_LINES`, `PANEL_FIXED_LINES`, etc.) without reading that first, or the header/stats panel will silently overflow off-screen.
+Standalone Bun/TypeScript/Ink project living inside this repo — its own `package.json`/lockfile/tsconfig/`.gitignore`, no root-level workspace tooling ties it to the Python side. **See `doc/ARCHITECTURE.md` for the design** (mode decision, wear-leveling split, `/model` switching, why Ink rendering uses a fixed line budget instead of a scroll region) — don't touch line-budget constants in `src/ui/app.tsx` (`HEADER_LINES`, `PANEL_FIXED_LINES`, etc.) without reading that first, or the header/stats panel will silently overflow off-screen.
 
 - `bun run dev` / `bun run start` — run directly from `src/index.tsx` (relative to `src/cli/`).
 - `bun run build` — compiles to `dist/mlx-cluster-cli` (standalone binary).

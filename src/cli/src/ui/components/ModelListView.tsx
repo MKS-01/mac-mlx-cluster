@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { BLUE, DIM, FG, GREEN, RED, YELLOW } from "../theme";
-import type { CachedModel } from "../models";
+import type { CachedModel } from "../../models/models";
 
 // Fit verdict for a quantized model's weights against the serving node's
 // RAM. Weights alone aren't the whole story (KV cache, OS headroom), hence

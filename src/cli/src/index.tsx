@@ -1,12 +1,12 @@
 import React from "react";
 import { render } from "ink";
 import { createInterface } from "node:readline/promises";
-import { App } from "./app";
-import { connect, connectPreferPeer, disconnect, disconnectSync, type Session } from "./cluster";
-import { loadConfig, ConfigError, type ClusterConfig } from "./config";
-import { loadPrefs, savePrefs } from "./prefs";
-import { recommend, actualPct, formatSplit } from "./splitPolicy";
-import { fetchNodeStats } from "./macmon";
+import { App } from "./ui/app";
+import { connect, connectPreferPeer, disconnect, disconnectSync, type Session } from "./cluster/cluster";
+import { loadConfig, ConfigError, type ClusterConfig } from "./config/config";
+import { loadPrefs, savePrefs } from "./config/prefs";
+import { recommend, actualPct, formatSplit } from "./cluster/splitPolicy";
+import { fetchNodeStats } from "./net/macmon";
 
 // Thresholds for the startup wear-leveling check (fractions, matching
 // macmon's cpu_usage_pct / gpu_usage[1]): below IDLE, the peer is clearly

@@ -10,7 +10,7 @@ builds on actually work.
 wear-leveling split simple (`/split 50/50`, checked once at CLI startup
 only) for now.
 
-**What it would add:** today, the wear-leveling split (`splitPolicy.ts`)
+**What it would add:** today, the wear-leveling split (`src/cluster/splitPolicy.ts`)
 only decides which Mac should serve *at CLI startup*. If the m5 starts
 running something else heavy partway through an already-running session,
 nothing reacts — the CLI keeps serving from the m5 for the rest of that
@@ -20,14 +20,14 @@ session (`session.tookOverFromServer`) is running, automatically migrate
 serving back to the m1, without asking.
 
 **Design summary** (full detail available if/when this gets picked up):
-- Reuse the existing 2s stats-poll tick in `app.tsx` (no new poller) —
+- Reuse the existing 2s stats-poll tick in `src/ui/app.tsx` (no new poller) —
   sample the peer's load only during idle gaps between chat exchanges
   (`!state.busy`), so the session's own inference load is never mistaken
   for "something else is busy."
 - Require sustained busy-ness (proposed: 5 consecutive polls, ~10s) before
   triggering, not a single spike.
 - Move the `IDLE_*`/`BUSY_*` thresholds (currently local to `index.tsx`)
-  into `splitPolicy.ts` so both the startup check and this new mid-session
+  into `src/cluster/splitPolicy.ts` so both the startup check and this new mid-session
   check share one definition.
 - Migration itself: `disconnect()` the current local session (stops the
   local server + restarts the m1's LaunchAgent, since `tookOverFromServer`
@@ -47,7 +47,7 @@ serving back to the m1, without asking.
   both migrations and `onActiveTime` calls only ever happen between
   exchanges, never concurrently), rather than instrumenting mid-exchange
   timestamps.
-- Small optional add-on worth doing alongside it: `StatusPanel.tsx`'s
+- Small optional add-on worth doing alongside it: `src/ui/components/StatusPanel.tsx`'s
   `serverLabel()` currently shows the same `"local fallback · spawned"`
   string for both a genuine "m1 unreachable" fallback and a deliberate
   wear-leveling takeover — worth distinguishing them in the UI once this

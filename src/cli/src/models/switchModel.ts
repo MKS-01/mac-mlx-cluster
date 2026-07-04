@@ -1,7 +1,7 @@
-import type { ClusterConfig } from "./config";
-import type { Session } from "./cluster";
-import { pollUntilHealthy, startLocalServer, stopLocalServer } from "./server";
-import { setRemoteModel, kickstartRemote } from "./ssh";
+import type { ClusterConfig } from "../config/config";
+import type { Session } from "../cluster/cluster";
+import { pollUntilHealthy, startLocalServer, stopLocalServer } from "../net/server";
+import { setRemoteModel, kickstartRemote } from "../net/ssh";
 
 export interface SwitchResult {
   ok: boolean;

@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { BLUE, DIM, FG } from "../theme";
-import { version } from "../../package.json";
+import { version } from "../../../package.json";
 
 // Half-block wordmark — plain Unicode block elements, renders in any mono
 // font (same lettering style as readback-cli's Header). "MLX" in white,

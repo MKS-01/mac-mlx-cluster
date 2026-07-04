@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { DEFAULT_SPLIT, EMPTY_HISTORY, type SplitHistory, type SplitTarget } from "./splitPolicy";
+import { DEFAULT_SPLIT, EMPTY_HISTORY, type SplitHistory, type SplitTarget } from "../cluster/splitPolicy";
 
 export interface Prefs {
   model: string | null;
