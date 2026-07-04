@@ -17,6 +17,19 @@ or sharded across two when the model is too big for either.
 
 </div>
 
+## Why this exists
+
+Built after watching [WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/)
+and immediately wondering if my aging M1 Pro could stop being a paperweight
+and actually pull its weight next to a newer Mac. First proof it worked was
+[exo](https://github.com/exo-explore/exo); then `mlx.launch` showed the
+MLX-native way to do it. And because I'd rather automate a thing once than
+type it by hand forever, it all got wrapped into a proper terminal CLI —
+built the way most of my side projects get built, in short bursts during my
+weekend 1–3 AM ghost hours, the only time my brain is somehow at its best.
+Every command in [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run
+for real, failures included — that's where the gotchas sections come from.
+
 ```
    ┌──────────────────────┐                          ┌──────────────────────┐
    │   M5 Pro · 48 GB     │      Thunderbolt 4       │   M1 Pro · 32 GB     │
@@ -30,22 +43,12 @@ or sharded across two when the model is too big for either.
             → 80 GB of combined unified memory for models neither can hold alone
 ```
 
-## Why this exists
-
-A weekend 1–3 AM side project — the question that kept me up: *could two
-idle Macs run one LLM together?* Answered first with
-[exo](https://github.com/exo-explore/exo), then the MLX-native way via
-[WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/)'s
-`mlx.launch`, and finally wrapped in a real terminal CLI. Every command in
-[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real, failures
-included — that's where the gotchas sections come from.
-
 ## What's in the box
 
 | | |
 |---|---|
 | **`mlx-cluster-cli`** | Terminal chat client + cluster operator: live CPU/GPU/RAM bars for both Macs, in-session model switching, wear-leveling so one machine doesn't take all the load, and `/mode cluster` to shard an oversized model across both — without leaving your chat. |
-| **`mlxctl`** | The model-cache manager `hf` should have shipped with: true on-disk sizes, per-shard download progress, stuck-download rescue, and a will-it-fit verdict against your Mac's real wired-memory ceiling. |
+| **`mlxctl`** | The model-cache manager `hf` should have shipped with: true on-disk sizes, per-shard download progress, stuck-download rescue, and a will-it-fit verdict against your Mac's real wired-memory ceiling. `ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl`, then `mlxctl --help`. |
 | **Verified guides** | Single-Mac quickstart → Thunderbolt bridge → SSH mesh → distributed smoke test → always-on LaunchAgent server. Each step actually run on the hardware in the diagram above. |
 
 Only the cluster pieces need two Macs — the quickstart and `mlxctl` are fully
@@ -67,27 +70,6 @@ mlx_lm.chat --model mlx-community/Qwen3.5-9B-4bit --max-tokens 2048
 That's a local LLM, chatting, on one Mac. Details in
 [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md); when you're ready for the
 second Mac, [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) takes it from here.
-
-## `mlxctl` — tame the model cache
-
-```sh
-ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl
-```
-
-| Command | What it does |
-|---------|--------------|
-| `mlxctl list` | All cached models with true size + status — counts in-progress downloads `hf cache list` can't see |
-| `mlxctl status <repo>` | Per-shard download progress for one model |
-| `mlxctl download <repo>` | Download a model (refuses to start a second copy of a running one) |
-| `mlxctl search <query>` | Search `mlx-community` on the Hub |
-| `mlxctl run <repo> [args]` | Launch `mlx_lm.chat` — repo accepts a unique substring, e.g. `mlxctl run 9b` |
-| `mlxctl meminfo [repo]` | This Mac's wired-memory ceiling + a fits / tight / won't-fit verdict |
-| `mlxctl clean [repo]` | Kill a stuck download, clear stale locks, drop stale partials — never touches complete files |
-| `mlxctl remove <repo>` | Delete a model from the cache entirely |
-| `mlxctl server <start\|stop\|status>` | Drive the cluster's LaunchAgent server, locally or over SSH |
-
-Optional env vars: `MLX_VENV` (default `~/.venvs/mlx`) and `HF_HOME`
-(default `~/.cache/huggingface`).
 
 ## Running the cluster
 

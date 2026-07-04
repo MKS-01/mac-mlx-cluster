@@ -255,9 +255,15 @@ ssh <user>@10.0.0.1 'sudo cp /tmp/wired-limit.example.plist /Library/LaunchDaemo
 
 ## Backend choice: ring, not jaccl
 
-The WWDC demo uses `--backend jaccl` (RDMA over Thunderbolt 5). JACCL requires
-TB5 on **every** node; on a TB4 machine use the default TCP `ring` backend over
-the bridge IPs instead. Same hostfile shape, just no `"rdma"` entries.
+`--backend jaccl` (RDMA over Thunderbolt 5, what the WWDC demo uses) is the
+better choice whenever every node actually supports it — lower latency,
+higher throughput, no reason not to take it if you can. The catch is it
+needs TB5 on **every** node, not just one. This repo's pair is mismatched
+(M5 Pro has TB5, the M1 Pro only has TB4), so JACCL isn't reachable here no
+matter how the cable's wired — the fallback for exactly this case is the
+default TCP `ring` backend over the bridge IPs. Same hostfile shape, just no
+`"rdma"` entries. If your two Macs both have TB5, use `jaccl` instead; this
+guide's `ring` instructions still apply verbatim otherwise.
 
 ## Gotchas we hit
 

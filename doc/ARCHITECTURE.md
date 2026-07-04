@@ -17,8 +17,11 @@ static IPs on top):
 
 No Wi-Fi/LAN dependency for cluster traffic — everything (SSH, the model
 API, macmon stats, distributed `mlx.launch` jobs) rides the Thunderbolt
-bridge. RDMA/JACCL speedups need Thunderbolt 5, which the M1 Pro lacks, so
-distributed jobs use the `ring` (TCP) backend instead.
+bridge. RDMA/JACCL is the better-performing backend and would be the
+default choice if both nodes supported it, but it needs Thunderbolt 5 on
+*every* node — the M1 Pro here only has TB4, so this particular pair can't
+reach it regardless of cable. Distributed jobs use the `ring` (TCP) backend
+instead; see `CLUSTER_SETUP.md`'s "Backend choice" for the full tradeoff.
 
 ## Two serving patterns
 
