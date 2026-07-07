@@ -79,8 +79,10 @@ def cmd_list(_args):
                   "Add a project with 'harness allow <path>'."))
         return
     for p in paths:
-        mark = grn("●") if p.is_dir() else red("○") + dim(" (missing)")
-        print(f"{mark} {p}")
+        exists = p.is_dir()
+        mark = grn("●") if exists else red("○")
+        suffix = "" if exists else dim(" (missing)")
+        print(f"{mark} {p}{suffix}")
 
 def launch(args):
     cwd = Path.cwd().resolve()
