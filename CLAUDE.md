@@ -9,7 +9,7 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 ## Layout
 
 - `doc/` — all markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions) — read it before making non-trivial changes to `src/cli/`. `MLX_QUICKSTART.md`/`CLUSTER_SETUP.md` are the detailed setup docs it links out to. **`ROADMAP.md`** tracks planned-but-not-built work — check it before assuming a feature doesn't exist yet vs. was deliberately deferred. **`HARNESS.md`** documents the local coding-agent harness (OpenCode + evaluator subagent on the cluster's Qwen models — config in root `opencode.json`/`AGENTS.md`).
-- `src/` — all code: `src/tools/` (`mlxctl`, the distributed-MLX benchmark script, the zero-dep chat client, example configs, `requirements*.txt`), `src/cli/` (the TypeScript chat client).
+- `src/` — all code: `src/tools/` (`mlxctl`, `harness` — the allowlist wrapper that gates which dirs may launch the OpenCode agent, symlinked into `~/.venvs/mlx/bin` like `mlxctl`; the distributed-MLX benchmark script, the zero-dep chat client, example configs, `requirements*.txt`), `src/cli/` (the TypeScript chat client).
 - `.claude/skills/` — project skills for common cluster/CLI tasks (`ssh-check`, `debug`, `model-fit`, `model-transfer`, `cleanup`, `design-system`, `mlx-update`). Invoke with `/name` or let Claude pick one up from context.
 - `CLAUDE.md`, `README.md`, `LICENSE` stay at repo root.
 

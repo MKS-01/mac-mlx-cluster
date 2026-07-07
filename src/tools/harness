@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""harness — launch the OpenCode coding agent, only inside allowed projects.
+
+Front door for the harness described in doc/HARNESS.md: refuses to start
+unless the current directory is under a path listed in ~/.mlx/harness-projects
+(one absolute path per line, '#' comments allowed), then execs `opencode`
+with all arguments passed through.
+
+Commands:
+  allow [path]          Add a project directory to the allowlist (default: .)
+  deny <path>           Remove a directory from the allowlist
+  list                  Show the allowlist and whether each path still exists
+  <anything else>       Passed straight to `opencode` (run, no args, etc.)
+                        after the current-directory check
+"""
+import os
+import shutil
+import sys
+from pathlib import Path
+
+ALLOWLIST = Path(os.environ.get("MLX_HARNESS_PROJECTS",
+                                str(Path.home() / ".mlx/harness-projects")))
+
+# ---- colors (same palette as mlxctl) ------------------------------------
+TTY = sys.stdout.isatty()
+def c(code, s):
+    return f"\033[{code}m{s}\033[0m" if TTY else s
+def bold(s): return c("1", s)
+def dim(s):  return c("2", s)
+def red(s):  return c("31", s)
+def grn(s):  return c("32", s)
+def yel(s):  return c("33", s)
+
+def die(msg, code=1):
+    print(red("✗ ") + msg); sys.exit(code)
+
+def read_allowlist():
+    if not ALLOWLIST.exists():
+        return []
+    lines = ALLOWLIST.read_text().splitlines()
+    return [Path(p) for p in (ln.strip() for ln in lines)
+            if p and not p.startswith("#")]
+
+# allow/deny edit the file's raw lines rather than rewriting from the parsed
+# paths, so a user's own '#' comments and blank lines survive round-trips.
+
+def cmd_allow(args):
+    path = Path(args[0] if args else ".").expanduser().resolve()
+    if not path.is_dir():
+        die(f"not a directory: {path}")
+    if path in read_allowlist():
+        print(yel("● ") + f"already allowed: {path}"); return
+    ALLOWLIST.parent.mkdir(parents=True, exist_ok=True)
+    prefix = ""  # keep the appended entry on its own line
+    if ALLOWLIST.exists():
+        text = ALLOWLIST.read_text()
+        if text and not text.endswith("\n"):
+            prefix = "\n"
+    with ALLOWLIST.open("a") as f:
+        f.write(f"{prefix}{path}\n")
+    print(grn("✓ ") + f"allowed: {path}" + dim(f"  ({ALLOWLIST})"))
+
+def cmd_deny(args):
+    if not args:
+        die("usage: harness deny <path>")
+    path = Path(args[0]).expanduser().resolve()
+    if path not in read_allowlist():
+        die(f"not in the allowlist: {path}")
+    # Drop only the matching path line; comments and blanks are kept verbatim.
+    kept = [ln for ln in ALLOWLIST.read_text().splitlines()
+            if not ln.strip() or ln.strip().startswith("#") or Path(ln.strip()) != path]
+    ALLOWLIST.write_text("".join(f"{ln}\n" for ln in kept))
+    print(grn("✓ ") + f"removed: {path}")
+
+def cmd_list(_args):
+    paths = read_allowlist()
+    if not paths:
+        print(dim(f"allowlist is empty ({ALLOWLIST}). "
+                  "Add a project with 'harness allow <path>'."))
+        return
+    for p in paths:
+        mark = grn("●") if p.is_dir() else red("○") + dim(" (missing)")
+        print(f"{mark} {p}")
+
+def launch(args):
+    cwd = Path.cwd().resolve()
+    allowed = [p for p in read_allowlist() if cwd == p or cwd.is_relative_to(p)]
+    if not allowed:
+        die(f"{bold(str(cwd))} is not an allowed harness project.\n"
+            f"  Allow it with: {bold('harness allow ' + str(cwd))}\n"
+            f"  See allowed projects with: {bold('harness list')}")
+    opencode = shutil.which("opencode")
+    if not opencode:
+        die("opencode not found on PATH (install: brew install opencode)")
+    os.execv(opencode, [opencode, *args])
+
+CMDS = {"allow": cmd_allow, "deny": cmd_deny, "list": cmd_list, "ls": cmd_list}
+
+def main():
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__); return
+    fn = CMDS.get(sys.argv[1]) if len(sys.argv) >= 2 else None
+    if fn:
+        fn(sys.argv[2:])
+    else:
+        launch(sys.argv[1:])
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(); sys.exit(130)

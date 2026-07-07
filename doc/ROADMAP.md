@@ -138,8 +138,9 @@ Still open:
 
 ## Harness — allow agent use only in selected projects/paths
 
-**Status:** planned, not implemented. See `doc/HARNESS.md` for the harness
-itself.
+**Status:** shipped (2026-07-07). Option 2 below is built as
+`src/tools/harness` (symlinked into `~/.venvs/mlx/bin` like `mlxctl`); see
+`doc/HARNESS.md`'s "Gating which projects can run the agent" section.
 
 **Goal:** the coding agent should only be able to operate inside an
 explicit allowlist of project directories — running `opencode` anywhere
@@ -148,28 +149,30 @@ no tools pointed at the machine.
 
 **Design options, weakest to strongest:**
 
-1. **Allowlist by construction (current state, keep as the baseline):**
+1. **Allowlist by construction (kept as the baseline):**
    don't put providers in `~/.config/opencode/opencode.json` — only
    projects that check in (or receive) an `opencode.json` with the
    `mlx-cluster`/`mlx-local` providers can use the harness at all.
    Selecting a project = copying the config there. Zero new machinery;
    the tradeoff is per-project copies to keep in sync.
-2. **Wrapper with an explicit path allowlist:** a small launcher (e.g.
-   `src/tools/harness`, symlinked like `mlxctl`) that reads an allowlist
-   file (`~/.mlx/harness-projects`, one absolute path per line), refuses
-   to start unless `pwd` is under one of them, and only then execs
-   `opencode`. Add `harness allow <path>` / `harness list` subcommands to
-   manage the file. Enforces intent even if providers ever go global, and
-   gives one obvious place to see every agent-enabled project.
-3. **Belt-and-braces (combine 1+2):** wrapper for the front door, plus
-   OpenCode's own `permission` config per project to deny tools the
-   project doesn't need (e.g. `webfetch` everywhere, `bash` in docs-only
-   repos).
+2. **Wrapper with an explicit path allowlist (implemented):** the
+   `src/tools/harness` launcher reads an allowlist file
+   (`~/.mlx/harness-projects`, one absolute path per line, `#` comments
+   allowed), refuses to start unless `pwd` is at or under one of them, and
+   only then execs `opencode` with all args passed through.
+   `harness allow [path]` / `harness deny <path>` / `harness list` manage
+   the file. Enforces intent even if providers ever go global, and gives
+   one obvious place to see every agent-enabled project.
+3. **Belt-and-braces (combine 1+2, still open):** wrapper for the front
+   door, plus OpenCode's own `permission` config per project to deny tools
+   the project doesn't need (e.g. `webfetch` everywhere, `bash` in
+   docs-only repos). Not built — the wrapper alone covers the stated goal;
+   revisit if per-project tool scoping is wanted.
 
-**Recommendation:** implement 2 while keeping 1 (no global providers).
-The wrapper is ~40 lines of stdlib Python in this repo's existing tool
-style, and `doc/HARNESS.md`'s "other projects" section then changes from
-"copy the config" to "harness allow <path> && copy the config".
+**Shipped as:** option 2 on top of option 1 (no global providers). The
+wrapper is stdlib Python in this repo's existing tool style;
+`doc/HARNESS.md`'s "other projects" flow is now `harness allow <path>`
+then copy the config.
 
 **Status:** tooling shipped (`mlxctl meminfo`, `wired-limit.example.plist`,
 `CLUSTER_SETUP.md` §9, updated `debug`/`model-fit` skills) — see

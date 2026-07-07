@@ -38,11 +38,14 @@ only, servers stopped on every exit path, prefs written only through `src/config
      --host 127.0.0.1 --port 8080
    ```
 
-2. **Start the agent** at the repo root (that's where `opencode.json` and `AGENTS.md` live):
+2. **Start the agent** at the repo root (that's where `opencode.json` and `AGENTS.md` live).
+   Launch through `harness` (the allowlist wrapper — see "Gating which projects can run
+   the agent" below), which execs `opencode` once the directory is allowed:
 
    ```sh
-   opencode            # interactive TUI
-   opencode run "..."  # one-shot
+   harness allow       # one-time: add this repo to the allowlist
+   harness             # interactive TUI  (plain `opencode` still works too)
+   harness run "..."   # one-shot
    ```
 
 3. **Pick the provider/model** with `/models`: `mlx-cluster/…` targets the Pattern A server
@@ -59,6 +62,30 @@ fallback started. Never start a second server on the same Mac for the harness (i
 would double model RAM); conversely, if the harness's own local server is running on
 port 8080, `mlx-cluster-cli`'s local fallback will refuse to start its own there —
 one of them owns the port, both can talk to it.
+
+## Gating which projects can run the agent
+
+`opencode`'s tools operate on whatever directory you launch it in, so the
+front door is a small wrapper — `src/tools/harness` (symlinked into
+`~/.venvs/mlx/bin` like `mlxctl`) — that only execs `opencode` when the
+current directory is on an allowlist:
+
+```sh
+harness allow            # add the current directory (or: harness allow <path>)
+harness list             # show allowed projects (● exists, ○ missing)
+harness deny <path>      # remove one
+harness                  # inside an allowed dir: launches the TUI
+harness run "..."        # any other args pass straight through to opencode
+```
+
+The allowlist is `~/.mlx/harness-projects` (one absolute path per line,
+`#` comments allowed; override with `MLX_HARNESS_PROJECTS`). Outside an
+allowed directory `harness` refuses to start and tells you the exact
+`harness allow` command to enable it. A path allows its subdirectories
+too. This is intent enforcement, not a sandbox — it decides *where* the
+agent may run; pair it with keeping providers out of
+`~/.config/opencode/opencode.json` (see below) so unrelated directories
+have no local models to reach anyway.
 
 ## Recommended models
 
@@ -93,6 +120,7 @@ Add new models to both provider blocks in `opencode.json` when downloaded.
 | `opencode.json` (repo root) | Providers (`mlx-cluster`, `mlx-local`), model limits, the `evaluator` subagent + its grading prompt |
 | `AGENTS.md` (repo root) | Worker's project instructions: layout, repo rules, the evaluate-fix loop |
 | `~/.mlx/cluster-cli.json` | Not read by OpenCode — but it's where the serving side (CLI/LaunchAgent) is configured; keep IPs consistent |
+| `~/.mlx/harness-projects` | Allowlist read by the `harness` wrapper: which directories may launch the agent (override with `MLX_HARNESS_PROJECTS`) |
 
 ## Using the harness in other projects
 
@@ -141,11 +169,12 @@ cp opencode.json /path/to/new-project/opencode.json
 # 1. a server must be up — the M1 LaunchAgent (mlxctl server status), or local:
 HF_HUB_OFFLINE=1 mlx_lm.server --model mlx-community/Qwen3.6-35B-A3B-4bit-DWQ \
   --host 127.0.0.1 --port 8080
-# 2. run the agent AT the project root (its cwd = its workspace):
+# 2. allow the project once, then run the agent AT its root (cwd = workspace):
 cd /path/to/new-project
-opencode                      # interactive TUI: /models to pick, Tab for agents,
+harness allow                 # one-time: add this dir to ~/.mlx/harness-projects
+harness                       # interactive TUI: /models to pick, Tab for agents,
                               # /new per task, /undo to revert, Esc to interrupt
-opencode run "short question" # one-shots: keep them SHORT (see known issue below)
+harness run "short question"  # one-shots: keep them SHORT (see known issue below)
 ```
 
 ## Verification status
