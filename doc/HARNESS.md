@@ -94,6 +94,60 @@ Add new models to both provider blocks in `opencode.json` when downloaded.
 | `AGENTS.md` (repo root) | Worker's project instructions: layout, repo rules, the evaluate-fix loop |
 | `~/.mlx/cluster-cli.json` | Not read by OpenCode — but it's where the serving side (CLI/LaunchAgent) is configured; keep IPs consistent |
 
+## Using the harness in other projects
+
+Only OpenCode is directory-bound: the directory you launch `opencode` in is its
+workspace — it loads `opencode.json` and `AGENTS.md` from there, and its tools operate
+on that tree. The serving side (`mlx_lm.server`, the models, `mlx-cluster-cli`) is
+completely project-independent; a new project needs zero new server setup.
+
+To use the same local models in another project, get the provider config there one of
+two ways:
+
+1. **Global providers (recommended once you use more than one project).** Move the
+   `provider` block — plus `model`/`small_model` — from this repo's `opencode.json`
+   into `~/.config/opencode/opencode.json`. Every project then sees the
+   `mlx-cluster`/`mlx-local` models with no per-project setup; project files can stay
+   minimal or omit `opencode.json` entirely. (Config merges: a project file still
+   overrides globals where both define the same key.)
+2. **Copy per project.** Copy `opencode.json` into the new project's root and prune.
+   Fine for one or two projects.
+
+Per project, then optionally add:
+
+- **`AGENTS.md`** at its root — that project's rules for the worker (layout,
+  build/test commands, what not to touch). The harness works without it, but a local
+  model benefits a lot from explicit rules; keep it short (its context is precious).
+- **An evaluator agent** — the pattern (read-only subagent, graded criteria, PASS/FAIL
+  verdict) transfers to any project; the criteria do not. Rewrite criterion 3+ around
+  that project's real checks (its test runner, its linter, its conventions) — this
+  repo's version grades `ruff`, `bun run build`, and the Ink design system, which
+  mean nothing elsewhere.
+
+Commands, end to end:
+
+```sh
+# --- option 1, one-time: make the providers global (run from this repo's root) ---
+mkdir -p ~/.config/opencode
+cp opencode.json ~/.config/opencode/opencode.json
+# then edit ~/.config/opencode/opencode.json and delete the "agent" block —
+# the evaluator's criteria are specific to this repo and don't belong globally
+
+# --- option 2, per project: copy instead (run from this repo's root) ---
+cp opencode.json /path/to/new-project/opencode.json
+# same pruning applies; rewrite the evaluator prompt for that project's checks
+
+# --- daily use, any project ---
+# 1. a server must be up — the M1 LaunchAgent (mlxctl server status), or local:
+HF_HUB_OFFLINE=1 mlx_lm.server --model mlx-community/Qwen3.6-35B-A3B-4bit-DWQ \
+  --host 127.0.0.1 --port 8080
+# 2. run the agent AT the project root (its cwd = its workspace):
+cd /path/to/new-project
+opencode                      # interactive TUI: /models to pick, Tab for agents,
+                              # /new per task, /undo to revert, Esc to interrupt
+opencode run "short question" # one-shots: keep them SHORT (see known issue below)
+```
+
 ## Verification status
 
 Verified on 2026-07-07 (mlx-lm 0.31.3, OpenCode 1.17.10, Qwen3.6-35B-A3B-4bit-DWQ,
