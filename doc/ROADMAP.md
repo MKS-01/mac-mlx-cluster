@@ -136,7 +136,40 @@ Still open:
   introduced by the 2026-07-07 UI changes; reproduce with both macmons
   stopped and bisect from there.
 
-## `CLUSTER_SETUP.md` §9 — verify wired-memory limit persistence on real hardware
+## Harness — allow agent use only in selected projects/paths
+
+**Status:** planned, not implemented. See `doc/HARNESS.md` for the harness
+itself.
+
+**Goal:** the coding agent should only be able to operate inside an
+explicit allowlist of project directories — running `opencode` anywhere
+else (home directory, unrelated repos) should get no local providers and
+no tools pointed at the machine.
+
+**Design options, weakest to strongest:**
+
+1. **Allowlist by construction (current state, keep as the baseline):**
+   don't put providers in `~/.config/opencode/opencode.json` — only
+   projects that check in (or receive) an `opencode.json` with the
+   `mlx-cluster`/`mlx-local` providers can use the harness at all.
+   Selecting a project = copying the config there. Zero new machinery;
+   the tradeoff is per-project copies to keep in sync.
+2. **Wrapper with an explicit path allowlist:** a small launcher (e.g.
+   `src/tools/harness`, symlinked like `mlxctl`) that reads an allowlist
+   file (`~/.mlx/harness-projects`, one absolute path per line), refuses
+   to start unless `pwd` is under one of them, and only then execs
+   `opencode`. Add `harness allow <path>` / `harness list` subcommands to
+   manage the file. Enforces intent even if providers ever go global, and
+   gives one obvious place to see every agent-enabled project.
+3. **Belt-and-braces (combine 1+2):** wrapper for the front door, plus
+   OpenCode's own `permission` config per project to deny tools the
+   project doesn't need (e.g. `webfetch` everywhere, `bash` in docs-only
+   repos).
+
+**Recommendation:** implement 2 while keeping 1 (no global providers).
+The wrapper is ~40 lines of stdlib Python in this repo's existing tool
+style, and `doc/HARNESS.md`'s "other projects" section then changes from
+"copy the config" to "harness allow <path> && copy the config".
 
 **Status:** tooling shipped (`mlxctl meminfo`, `wired-limit.example.plist`,
 `CLUSTER_SETUP.md` §9, updated `debug`/`model-fit` skills) — see
