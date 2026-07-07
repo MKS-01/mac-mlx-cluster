@@ -111,6 +111,8 @@ to require hand-typed `mlx.launch` incantations.
 - [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) — single Mac, zero to chatting
 - [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — the two-Mac walkthrough,
   every command verified, gotchas included
+- [`doc/HARNESS.md`](./doc/HARNESS.md) — coding-agent harness: OpenCode + a
+  fresh-context evaluator, running on the cluster's own Qwen models
 
 ## License
 

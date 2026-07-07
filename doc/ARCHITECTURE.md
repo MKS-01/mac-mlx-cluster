@@ -3,7 +3,8 @@
 System-level reference: what talks to what, where state lives, and why the
 non-obvious decisions were made. For step-by-step setup, see
 [`CLUSTER_SETUP.md`](./CLUSTER_SETUP.md); for single-Mac basics, see
-[`MLX_QUICKSTART.md`](./MLX_QUICKSTART.md).
+[`MLX_QUICKSTART.md`](./MLX_QUICKSTART.md). The coding-agent harness that runs
+against this stack is described in [`HARNESS.md`](./HARNESS.md).
 
 ## Hardware topology
 
