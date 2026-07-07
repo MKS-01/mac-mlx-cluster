@@ -7,7 +7,7 @@ import { switchModel } from "../models/switchModel";
 import { listServerModels, resolveModel, type CachedModel } from "../models/models";
 import { fetchNodeStats, combineStats, selfNodeId, type NodeStats } from "../net/macmon";
 import { loadPrefs, savePrefs } from "../config/prefs";
-import { actualPct, formatSplit, parseSplit, type SplitTarget } from "../cluster/splitPolicy";
+import { actualPct, formatSplit, parseSplit, BUSY_GPU_PCT, type SplitTarget } from "../cluster/splitPolicy";
 import { estimatedCeilingGB, fitVerdict } from "../cluster/memory";
 import { windowMessages, estimateLines } from "../chat/chatWindow";
 import { BLUE, DIM } from "./theme";
@@ -38,6 +38,9 @@ interface State {
   statsView: "combined" | "split";
   splitTarget: SplitTarget;
   nodes: NodeStats[];
+  // Another client is generating on the serving node while this CLI is idle
+  // (e.g. the doc/HARNESS.md coding agent) — see the stats poll below.
+  externalBusy: boolean;
   quitting: boolean;
 }
 
@@ -53,7 +56,7 @@ type Action =
   | { type: "clear" }
   | { type: "setStatsView"; view: "combined" | "split" }
   | { type: "setSplitTarget"; target: SplitTarget }
-  | { type: "stats"; nodes: NodeStats[] }
+  | { type: "stats"; nodes: NodeStats[]; externalBusy: boolean }
   | { type: "modelSwitched"; session: Session }
   | { type: "quitting" };
 
@@ -95,7 +98,7 @@ function reducer(state: State, action: Action): State {
     case "setSplitTarget":
       return { ...state, splitTarget: action.target };
     case "stats":
-      return { ...state, nodes: action.nodes };
+      return { ...state, nodes: action.nodes, externalBusy: action.externalBusy };
     case "modelSwitched":
       return { ...state, session: action.session, busy: false };
     case "quitting":
@@ -134,12 +137,19 @@ export function App({
     statsView: prefs.statsView ?? "combined",
     splitTarget: prefs.splitTarget,
     nodes: [],
+    externalBusy: false,
     quitting: false,
   });
 
   const stateRef = useRef(state);
   stateRef.current = state;
   const abortRef = useRef<AbortController | null>(null);
+
+  // Consecutive stats ticks where the serving node's GPU looked busy while
+  // this CLI was idle. Requiring several in a row (~10s at the 2s tick)
+  // filters spikes, same sustained-busy idea as the auto-divert design in
+  // ROADMAP.md; a ref because it must survive re-renders without causing any.
+  const externalBusyTicks = useRef(0);
 
   // Stats polling — both nodes independently. The node this CLI runs on
   // falls back to loopback if its bridge IP doesn't answer, so a solo
@@ -153,7 +163,20 @@ export function App({
         fetchNodeStats(config.server.id, config.server.ip, config.server.macmonPort, config.server.id === selfId),
         fetchNodeStats(config.peer.id, config.peer.ip, config.peer.macmonPort, config.peer.id === selfId),
       ]);
-      if (!cancelled) dispatch({ type: "stats", nodes: [serverStats, peerStats] });
+      if (cancelled) return;
+      // Harness visibility: GPU load on whichever node(s) serve this session
+      // while we're idle means some other client is generating (the shared
+      // server serves the coding-agent harness too — doc/HARNESS.md). Only
+      // sample during idle gaps so our own inference is never mistaken for it.
+      const st = stateRef.current;
+      const nodes = [serverStats, peerStats];
+      const servingGpu =
+        st.session.mode === "shard"
+          ? Math.max(...nodes.map((n) => n.snapshot?.gpu_usage[1] ?? 0))
+          : (st.session.mode === "cluster" ? serverStats : peerStats).snapshot?.gpu_usage[1] ?? 0;
+      if (!st.busy && !st.switching && servingGpu >= BUSY_GPU_PCT) externalBusyTicks.current += 1;
+      else externalBusyTicks.current = 0;
+      dispatch({ type: "stats", nodes, externalBusy: externalBusyTicks.current >= 5 });
     };
     tick();
     const t = setInterval(tick, 2000);
@@ -574,7 +597,14 @@ export function App({
     <Box flexDirection="column" paddingX={1} paddingY={1}>
       <Header />
       <Box marginTop={1} marginBottom={1}>
-        <StatusPanel session={state.session} view={state.statsView} nodes={state.nodes} combined={combined} />
+        <StatusPanel
+          session={state.session}
+          view={state.statsView}
+          nodes={state.nodes}
+          combined={combined}
+          narrow={columns < 80}
+          externalBusy={state.externalBusy}
+        />
       </Box>
 
       {state.showHelp && <HelpView />}

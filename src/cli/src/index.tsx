@@ -5,32 +5,57 @@ import { App } from "./ui/app";
 import { connect, connectPreferPeer, disconnect, disconnectSync, type Session } from "./cluster/cluster";
 import { loadConfig, ConfigError, type ClusterConfig } from "./config/config";
 import { loadPrefs, savePrefs } from "./config/prefs";
-import { recommend, actualPct, formatSplit } from "./cluster/splitPolicy";
+import {
+  recommend,
+  actualPct,
+  formatSplit,
+  IDLE_CPU_PCT,
+  IDLE_GPU_PCT,
+  BUSY_CPU_PCT,
+  BUSY_GPU_PCT,
+} from "./cluster/splitPolicy";
 import { fetchNodeStats, selfNodeId } from "./net/macmon";
 import { fitVerdict } from "./cluster/memory";
 import { localModelSizeGB } from "./models/models";
+import { version } from "../package.json";
 
-// Thresholds for the startup wear-leveling check (fractions, matching
-// macmon's cpu_usage_pct / gpu_usage[1]): below IDLE, the peer is clearly
-// free and we just take over silently; at/above BUSY, something else is
-// already loading it and we back off without even asking; the gap between
-// is genuinely ambiguous, so that's the only case that prompts.
-const IDLE_CPU_PCT = 0.15;
-const IDLE_GPU_PCT = 0.1;
-const BUSY_CPU_PCT = 0.35;
-const BUSY_GPU_PCT = 0.25;
+// Startup wear-leveling uses the shared thresholds (splitPolicy.ts): below
+// IDLE, the peer is clearly free and we just take over silently; at/above
+// BUSY, something else is already loading it and we back off without even
+// asking; the gap between is genuinely ambiguous, so that's the only case
+// that prompts.
 
 function parseArgs() {
   const args = process.argv.slice(2);
   let model: string | undefined;
+  let localPort: number | undefined;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--model" && args[i + 1]) model = args[++i];
-    else if (args[i] === "--help" || args[i] === "-h") {
-      console.log("mlx-cluster-cli [--model <repo>]");
+    else if (args[i] === "--local-port" && args[i + 1]) {
+      const port = Number(args[++i]);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        console.error(red(`invalid --local-port "${args[i]}" — expected 1-65535`));
+        process.exit(1);
+      }
+      localPort = port;
+    } else if (args[i] === "--version" || args[i] === "-v") {
+      console.log(`mlx-cluster-cli ${version}`);
+      process.exit(0);
+    } else if (args[i] === "--help" || args[i] === "-h") {
+      console.log(
+        [
+          "mlx-cluster-cli [--model <repo>] [--local-port <port>] [--version]",
+          "",
+          "  --model <repo>       start with this model instead of the last-used one",
+          "  --local-port <port>  port for a locally spawned server this session (default: config localApiPort)",
+          "  --version, -v        print version and exit",
+          "  --help, -h           this help — /help inside the app lists the slash commands",
+        ].join("\n"),
+      );
       process.exit(0);
     }
   }
-  return { model };
+  return { model, localPort };
 }
 
 const dim = (s: string) => `\x1b[38;2;128;128;128m${s}\x1b[0m`;
@@ -115,7 +140,10 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
-const { model } = parseArgs();
+const { model, localPort } = parseArgs();
+// --local-port is a per-session override of config.localApiPort — it only
+// affects a server this session spawns locally, never the remote node.
+if (localPort !== undefined) config = { ...config, localApiPort: localPort };
 const prefs = loadPrefs();
 
 // Wear-leveling: decide whether this session should serve from the peer

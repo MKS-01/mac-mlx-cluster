@@ -93,6 +93,49 @@ the following can only be closed out live:
 6. Whether a non-interactive `Bun.spawn` (stdin ignored) really sidesteps
    the "don't pipe stdin into `mlx.launch`" corruption gotcha.
 
+## `src/cli` — harness visibility: show when another client is using the server
+
+**Status:** shipped (2026-07-07). The stats poll in `src/ui/app.tsx` now
+derives "another client is generating" from sustained GPU load (5
+consecutive 2s ticks ≥ `BUSY_GPU_PCT`, thresholds shared with the startup
+wear-leveling check via `src/cluster/splitPolicy.ts`) on the serving node
+while this CLI is idle, rendered as a `· busy (another client)` suffix on
+the StatusPanel `server` row. Motivated by `doc/HARNESS.md` — the OpenCode
+harness and this CLI share one `mlx_lm.server`.
+
+Remaining non-goal: per-request accounting (would need a metrics proxy in
+front of `mlx_lm.server`; not worth it for a two-client setup).
+
+## `src/cli` — startup & flags UX
+
+**Status:** shipped (2026-07-07). `--version`/`-v`, `--local-port <port>`
+(per-session override of `config.localApiPort` — the port-conflict error
+had referenced this flag before it existed), attach-instead-of-refuse when
+a healthy server already holds the local port (`cluster.ts
+attachOrStartLocal`; such sessions refuse `/model` since the server isn't
+theirs to restart), and a multi-line `--help`.
+
+## `src/cli` — UI polish backlog (design-system pass)
+
+**Status:** mostly shipped (2026-07-07): StatusPanel/ModelListView
+truncation of long model names (a wrapped row silently broke the fixed
+line budget), avg GPU% in the combined stats view, and a narrow-terminal
+degrade (temps dropped below 80 columns).
+
+Still open:
+
+- **Resize debounce:** the `resize` listener in `src/index.tsx` wipes and
+  repaints per event; rapid drag-resizes flicker. Cheap `setTimeout`
+  coalesce, keeping the existing wipe-before-ink ordering. Deferred: the
+  wipe ordering is correctness-critical (stale-frame pileup) and a TUI
+  resize race is hard to verify non-interactively.
+- **Startup duplicate-key warning (investigate):** a one-line React
+  "Encountered two children with the same key" warning prints once at
+  startup when macmon is unreachable on both nodes (the "stats
+  unavailable" render path). Origin not yet pinned down — not obviously
+  introduced by the 2026-07-07 UI changes; reproduce with both macmons
+  stopped and bisect from there.
+
 ## `CLUSTER_SETUP.md` §9 — verify wired-memory limit persistence on real hardware
 
 **Status:** tooling shipped (`mlxctl meminfo`, `wired-limit.example.plist`,

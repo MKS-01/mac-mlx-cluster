@@ -44,7 +44,7 @@ function Bar({ pct }: { pct: number }) {
   );
 }
 
-function NodeLine({ node, idPad }: { node: NodeStats; idPad: number }) {
+function NodeLine({ node, idPad, narrow }: { node: NodeStats; idPad: number; narrow: boolean }) {
   if (!node.snapshot) {
     return (
       <Text>
@@ -67,11 +67,16 @@ function NodeLine({ node, idPad }: { node: NodeStats; idPad: number }) {
       </Text>
       <Text color={DIM}>
         {"  · cpu "}
-        {(s.cpu_usage_pct * 100).toFixed(0)}% gpu {(s.gpu_usage[1] * 100).toFixed(0)}%{" · "}
+        {(s.cpu_usage_pct * 100).toFixed(0)}% gpu {(s.gpu_usage[1] * 100).toFixed(0)}%
       </Text>
-      <Text color={tempColor(Math.max(cpuTemp, gpuTemp))}>
-        {cpuTemp.toFixed(0)}°/{gpuTemp.toFixed(0)}°
-      </Text>
+      {!narrow && (
+        <Text>
+          <Text color={DIM}>{" · "}</Text>
+          <Text color={tempColor(Math.max(cpuTemp, gpuTemp))}>
+            {cpuTemp.toFixed(0)}°/{gpuTemp.toFixed(0)}°
+          </Text>
+        </Text>
+      )}
     </Text>
   );
 }
@@ -80,10 +85,15 @@ export function StatsBar({
   view,
   nodes,
   combined,
+  narrow = false,
 }: {
   view: "combined" | "split";
   nodes: NodeStats[];
   combined: CombinedStats;
+  // Below ~80 columns a full stats line wraps and silently eats the line
+  // budget (app.tsx sizes the transcript assuming each panel row is one
+  // row) — degrade by dropping temps first; the bar + GB is the core signal.
+  narrow?: boolean;
 }) {
   if (view === "combined") {
     if (combined.nodesUp === 0) {
@@ -96,11 +106,16 @@ export function StatsBar({
         <Text color={DIM}>
           {" "}
           {gbUsed(combined.ramUsedBytes)} / {gbTotal(combined.ramTotalBytes)} GB{"  · cpu "}
-          {(combined.avgCpuPct * 100).toFixed(0)}%{" · "}
+          {(combined.avgCpuPct * 100).toFixed(0)}% gpu {(combined.avgGpuPct * 100).toFixed(0)}%
         </Text>
-        <Text color={tempColor(Math.max(combined.maxCpuTempC, combined.maxGpuTempC))}>
-          {combined.maxCpuTempC.toFixed(0)}°/{combined.maxGpuTempC.toFixed(0)}°
-        </Text>
+        {!narrow && (
+          <Text>
+            <Text color={DIM}>{" · "}</Text>
+            <Text color={tempColor(Math.max(combined.maxCpuTempC, combined.maxGpuTempC))}>
+              {combined.maxCpuTempC.toFixed(0)}°/{combined.maxGpuTempC.toFixed(0)}°
+            </Text>
+          </Text>
+        )}
         <Text color={DIM}>
           {" · "}
           {combined.nodesUp}/{combined.nodesTotal} up
@@ -112,7 +127,7 @@ export function StatsBar({
   return (
     <Box flexDirection="column">
       {nodes.map((n) => (
-        <NodeLine key={n.id} node={n} idPad={idPad} />
+        <NodeLine key={n.id} node={n} idPad={idPad} narrow={narrow} />
       ))}
     </Box>
   );

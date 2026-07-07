@@ -53,6 +53,17 @@ export async function switchModel(
   }
 
   if (session.mode === "local") {
+    // Attached (localHandle null): the server on this port belongs to
+    // someone else — the harness, or a previous session. Killing and
+    // respawning it out from under its owner isn't ours to do.
+    if (!session.localHandle) {
+      return {
+        ok: false,
+        message:
+          `this session attached to a local server it doesn't own (port ${config.localApiPort}) — ` +
+          `switch the model there, or stop it and /mode solo to spawn our own`,
+      };
+    }
     onStatus(`stopping local server…`);
     stopLocalServer(session.localHandle);
     try {
