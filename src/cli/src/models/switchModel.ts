@@ -54,7 +54,7 @@ export async function switchModel(
 
   if (session.mode === "local") {
     // Attached (localHandle null): the server on this port belongs to
-    // someone else — the harness, or a previous session. Killing and
+    // someone else — another client, or a previous session. Killing and
     // respawning it out from under its owner isn't ours to do.
     if (!session.localHandle) {
       return {

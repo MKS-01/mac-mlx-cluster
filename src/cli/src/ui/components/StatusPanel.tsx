@@ -16,7 +16,7 @@ function serverLabel(session: Session): string {
   if (session.mode === "shard") return "sharded · all nodes (tensor parallel)";
   if (session.mode === "local") {
     // Attached (localHandle null): serving through a local server someone
-    // else started (the harness, a previous session) — not ours to stop.
+    // else started (another client, a previous session) — not ours to stop.
     if (!session.localHandle) return "solo · this Mac (attached to running server)";
     // A deliberate takeover (wear-leveling turn, /mode solo) reads
     // differently than an emergency fallback with the server unreachable.
@@ -47,10 +47,9 @@ export function StatusPanel({
   nodes: NodeStats[];
   combined: CombinedStats;
   narrow?: boolean;
-  // Another client (e.g. the OpenCode coding-agent harness — ARCHITECTURE.md's
-  // "Coding-agent harness" section) is generating on the serving node while
-  // this CLI sits idle — derived in app.tsx's stats poll, rendered as a
-  // suffix so the panel's row count never changes.
+  // Another client is generating on the serving node while this CLI sits
+  // idle — derived in app.tsx's stats poll, rendered as a suffix so the
+  // panel's row count never changes.
   externalBusy?: boolean;
 }) {
   return (

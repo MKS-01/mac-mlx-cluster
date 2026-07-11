@@ -27,8 +27,8 @@ auto-discovery and web dashboard are overkill for two Macs whose IPs I
 already know — `mlx.launch` does the same job MLX-native with a fraction
 of the moving parts, wrapped here in a proper terminal CLI. It then kept
 growing: once the models were being served anyway, the obvious next step
-was pointing coding agents at them — first an external OpenCode harness,
-then an agent built into the chat client itself. Every command in
+was pointing a coding agent at them, built straight into the chat client
+(`/agent`). Every command in
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real,
 failures included — that's where the gotchas sections come from.
 
@@ -73,10 +73,6 @@ failures included — that's where the gotchas sections come from.
   will-it-fit verdict (`mlxctl meminfo`), and one-command server control
   (`mlxctl server start|stop|status`) that works the same whether you're on
   the server Mac or not.
-- **OpenCode harness** — for heavier agent work than `/agent`: an external
-  [OpenCode](https://opencode.ai) worker plus a fresh-context evaluator that
-  grades its diffs, on the same local models, gated by a per-directory
-  allowlist (`harness allow`).
 - **Verified guides** — single-Mac quickstart → Thunderbolt bridge → SSH mesh →
   distributed smoke test → always-on LaunchAgent server, each step actually
   run on the hardware in the diagram above.
@@ -133,8 +129,7 @@ through the always-on server — lives in
   go-to command cheatsheet grouped by task.
 - [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
   a full-system flowchart, topology, data flow, and *why* the design is shaped
-  this way. Also home to the OpenCode harness docs and the Python-side
-  dev/lint commands.
+  this way (also where the Python-side dev/lint commands live).
 - [`src/cli/README.md`](./src/cli/README.md) — `mlx-cluster`'s own setup and
   command reference for daily driving: `/mode`, `/model`, `/agent`, `/split`,
   and the rest.

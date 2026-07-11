@@ -2,9 +2,7 @@
 // run whatever tools it asks for (pausing for confirmation on writes/bash),
 // feed the results back, and repeat until it answers with no more tool calls
 // or the round cap is hit. UI-agnostic — it emits events and awaits a
-// confirm() callback, both wired up in app.tsx. This is the in-CLI
-// replacement for the external OpenCode harness (ARCHITECTURE.md's
-// "Coding-agent harness" section).
+// confirm() callback, both wired up in app.tsx.
 
 import { agentTurn, ChatStreamError, type ChatMessage } from "../chat/chat";
 import { TOOL_SPECS, TOOL_BY_NAME, ToolError } from "./tools";

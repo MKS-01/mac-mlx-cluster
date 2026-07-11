@@ -46,8 +46,8 @@ interface State {
   // (e.g. another mlx-cluster or agent session) — see the stats poll below.
   externalBusy: boolean;
   quitting: boolean;
-  // Agentic coding mode (in-CLI replacement for the OpenCode harness): the
-  // working directory the agent is confined to, whether its loop is running,
+  // Agentic coding mode (/agent): the working directory the agent is
+  // confined to, whether its loop is running,
   // and a pending write/bash approval it's blocked on. Null root = plain chat.
   agentRoot: string | null;
   agentBusy: boolean;
@@ -217,10 +217,9 @@ export function App({
         fetchNodeStats(config.peer.id, config.peer.ip, config.peer.macmonPort, config.peer.id === selfId),
       ]);
       if (cancelled) return;
-      // Harness visibility: GPU load on whichever node(s) serve this session
-      // while we're idle means some other client is generating (the shared
-      // server serves the OpenCode coding-agent harness too — see
-      // ARCHITECTURE.md). Only sample during idle gaps so our own inference
+      // External-client visibility: GPU load on whichever node(s) serve this
+      // session while we're idle means some other client is generating on
+      // the shared server. Only sample during idle gaps so our own inference
       // is never mistaken for it.
       const st = stateRef.current;
       const nodes = [serverStats, peerStats];

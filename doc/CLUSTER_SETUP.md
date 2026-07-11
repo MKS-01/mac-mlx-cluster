@@ -385,8 +385,7 @@ guide's `ring` instructions still apply verbatim otherwise.
 
 The commands you actually reach for day to day, once everything above is set
 up — grouped by task, terse on purpose. The *why* is in the sections above and
-in [`ARCHITECTURE.md`](./ARCHITECTURE.md) (which also covers the OpenCode
-coding-agent harness); this is just the quick reference.
+in [`ARCHITECTURE.md`](./ARCHITECTURE.md); this is just the quick reference.
 
 ```sh
 source ~/.zshenv                      # if mlx_lm.*/mlxctl aren't on PATH in an open shell
@@ -419,29 +418,6 @@ If a cluster launch fails, the manual command in §7 (run directly instead of
 through the CLI) shows the FULL error — the CLI only shows `mlx.launch`'s last
 8 stderr lines, which hides the real cause behind the teardown traceback.
 
-### Coding-agent harness (OpenCode + local Qwen)
-
-```sh
-harness allow [path]                  # allow a project dir (default: .) — gate is enforced
-harness list                          # ● allowed / ○ missing
-harness deny <path>                   # remove one
-
-cd <allowed-dir>
-harness                               # interactive TUI  (/models to pick, /new, /undo, Esc)
-harness run --dangerously-skip-permissions \
-  -m mlx-local/mlx-community/Qwen3.6-35B-A3B-4bit-DWQ \
-  "create index.html: a simple landing page"        # one-shot
-```
-
-Three things that look like bugs but aren't: pick the **`mlx-local/…`** model when
-the M1 (`mlx-cluster`) is down; `harness run` needs `--dangerously-skip-permissions`
-(else the write tool blocks on an approval prompt); keep one-shot prompts to **one
-short line** (long `opencode run` prompts hang — known OpenCode bug, use the TUI).
-
-With the providers made global (`~/.config/opencode/opencode.json` — see
-`ARCHITECTURE.md`'s "Using the harness in other projects"), any allowed folder
-sees `mlx-local`/`mlx-cluster` with no per-project config.
-
 ### `mlx-cluster` (the chat client)
 
 ```sh
@@ -455,9 +431,9 @@ In-session: `/mode solo|server|cluster` · `/model [repo]` · `/agent [dir]` ·
 `~/.mlx/cluster-cli-prefs.json` (don't hand-edit while running).
 
 `/agent [<dir>]` is a single-Mac-friendly coding agent built into the client —
-it talks to whatever server the session is already using, no OpenCode or
-second machine needed. See `src/cli/README.md` and `ARCHITECTURE.md`'s
-"In-CLI coding agent" section.
+it talks to whatever server the session is already using, no second machine
+needed. See `src/cli/README.md` and `ARCHITECTURE.md`'s "In-CLI coding
+agent" section.
 
 ### Diagnostics & cleanup
 

@@ -8,8 +8,8 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 
 ## Layout
 
-- `doc/` — two markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions, and the external coding-agent harness — OpenCode + evaluator subagent on the cluster's Qwen models, config in root `opencode.json`/`AGENTS.md`) — read it before making non-trivial changes to `src/cli/`. **`CLUSTER_SETUP.md`** is the step-by-step setup doc — single Mac through the full two-Mac cluster build, every command verified, ending in a go-to command cheatsheet grouped by task.
-- `src/` — all code: `src/tools/` (`mlxctl`, `harness` — the allowlist wrapper that gates which dirs may launch the OpenCode agent, symlinked into `~/.venvs/mlx/bin` like `mlxctl`; the distributed-MLX benchmark script, the zero-dep chat client, example configs, `requirements*.txt`), `src/cli/` (the TypeScript chat client).
+- `doc/` — two markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions) — read it before making non-trivial changes to `src/cli/`. **`CLUSTER_SETUP.md`** is the step-by-step setup doc — single Mac through the full two-Mac cluster build, every command verified, ending in a go-to command cheatsheet grouped by task.
+- `src/` — all code: `src/tools/` (`mlxctl`; the distributed-MLX benchmark script, the zero-dep chat client, example configs, `requirements*.txt`), `src/cli/` (the TypeScript chat client, including its built-in `/agent` coding agent).
 - `.claude/skills/` — project skills for common cluster/CLI tasks (`ssh-check`, `debug`, `model-fit`, `model-transfer`, `cleanup`, `design-system`, `mlx-update`). Invoke with `/name` or let Claude pick one up from context.
 - `CLAUDE.md`, `README.md`, `LICENSE` stay at repo root.
 
