@@ -89,7 +89,7 @@ ruff format src/tools/mlxctl     # format
 
 | Command | What it does |
 |---|---|
-| `list` (`ls`) | Every cached repo, true on-disk size (via `real_size`, which sums resolved blobs including `.incomplete` temp files), and a complete/incomplete/partial/downloading status derived from `completeness()` — not from `hf cache list`, which only counts finished files. |
+| `list` (`ls`) | Every cached repo, true on-disk size (via `real_size`, which sums resolved blobs including `.incomplete` temp files), and a complete/incomplete/partial/downloading status derived from `completeness()`. |
 | `status` (`st`) `<repo>` | Per-shard detail for one repo: which files `model.safetensors.index.json`'s `weight_map` expects, which are actually present, and how many stale `.incomplete` blobs remain. |
 | `download <repo>` | `os.execv`s straight into `hf download <repo>` (replaces the `mlxctl` process rather than wrapping it, so Ctrl+C semantics are `hf`'s own). Refuses to start if `downloading_pid()` (a `pgrep` on the `hf download` command line) already finds one running for that repo. |
 | `remove` (`rm`) `<repo>` | Deletes the repo's entire cache directory and its lock dir. The only command that touches complete files — deliberately separate from `clean` so a stuck download can be cleared without risking a finished model. |
@@ -305,6 +305,49 @@ budget before any real content is emitted. The client detects this
 (`finish_reason: "length"` with zero content chunks) and surfaces a clear
 error instead of silently rendering an empty reply.
 
+### Stats polling (`src/net/macmon.ts`)
+
+Every 2s, `app.tsx` fetches `http://<host>:<macmonPort>/json` from
+`macmon serve` (a separate always-running process on each Mac, outside
+this repo) for both configured nodes, in parallel, with a 1.5s timeout —
+`fetchNodeStats` never throws, an unreachable node just reports
+`reachable: false` with an explanatory `error` string instead of taking
+the stats bar down. `selfNodeId()` figures out which configured node
+*this* process is running on by checking which configured IP (server's or
+peer's) is bound to a local network interface; if the bridge is down and
+neither is, it falls back to assuming the peer (the CLI's usual dev-Mac
+convention). Whichever node resolves as "self" also gets a loopback retry
+(`127.0.0.1:<port>`) if the bridge-IP fetch fails, so solo/fallback
+sessions still show this Mac's own memory pressure without the bridge.
+`combineStats()` reduces both nodes' snapshots into one figure (summed RAM,
+averaged CPU%, max of each temperature) for `/stats`'s "combined" view;
+`/stats` toggles to "split" for the same data shown per-node. Status-panel
+color tiers (`src/ui/colorScale.ts`'s `pressureColor`) are a flat
+green/yellow/red by pressure fraction (<60% / <85% / ≥85%), reused
+identically for RAM and temperature so the panel doesn't invent a new
+color language per metric.
+
+### Rendering (`src/ui/app.tsx`, `src/chat/chatWindow.ts`, `src/ui/markdown.tsx`)
+
+Ink has no real scroll region, so `<Static>` (which permanently flushes to
+terminal scrollback) would push the header/stats panel off-screen as the
+transcript grows. Instead the transcript is windowed to whatever fits the
+terminal height — recomputed every render from `stdout.rows` minus fixed
+line-budget constants (`HEADER_LINES`, `PANEL_FIXED_LINES`, `HELP_LINES`,
+etc.) — so the header stays pinned and only the tail of history is shown
+("↑ N earlier messages" when truncated).
+
+That line budget depends on `chatWindow.ts`'s raw-text line-count estimate
+staying accurate, which is why `markdown.tsx`'s renderer (headings,
+`**bold**`, `` `code` ``, `-`/`*` bullets — the constructs local models
+actually emit, nothing more) is deliberately restricted to *removing*
+marker characters (`###`, `**`, backticks) and never adding wrapped
+markup that could grow a line's rendered height past its raw-text
+estimate. An unterminated marker mid-stream (a `**` with no closing pair
+yet, since replies render incrementally as tokens arrive) falls through
+as literal text rather than being guessed at, so a still-streaming reply
+never flashes half-parsed formatting.
+
 ### In-CLI coding agent (`/agent`, `src/agent/`)
 
 `/agent <dir>` turns the chat client into a coding agent scoped to one
@@ -352,10 +395,9 @@ the result before the task is declared done. The worker is [OpenCode](https://op
 pointed at `mlx_lm.server`'s OpenAI-compatible API; the evaluator is an OpenCode subagent
 defined in this repo's `opencode.json`.
 
-> For quick tasks — a bug fix, writing a doc, a small feature — the chat client's
-> built-in `/agent [<dir>]` (above) needs none of this and works on a single Mac
-> with zero extra install. This harness is the heavier option: separate
-> worker/evaluator agents and OpenCode's full tool set.
+> For quick tasks, the chat client's built-in `/agent [<dir>]` (above) needs
+> none of this — this harness is the heavier option, for when you want a
+> separate evaluator and OpenCode's full tool set.
 
 Why this shape (short version of the article): models grade their own work too generously,
 so generation and evaluation are split; the evaluator runs in a fresh context (a subagent)
@@ -565,68 +607,6 @@ at (e.g. "do the task described in TASK.md").
   generation. Expected, just slower than cloud agents.
 - **Connection refused on `10.0.0.1`** — Thunderbolt bridge or the M1's server is down;
   run the `/debug` diagnostic (or use `mlx-local` with a locally started server meanwhile).
-
-### Stats polling (`src/net/macmon.ts`)
-
-Every 2s, `app.tsx` fetches `http://<host>:<macmonPort>/json` from
-`macmon serve` (a separate always-running process on each Mac, outside
-this repo) for both configured nodes, in parallel, with a 1.5s timeout —
-`fetchNodeStats` never throws, an unreachable node just reports
-`reachable: false` with an explanatory `error` string instead of taking
-the stats bar down. `selfNodeId()` figures out which configured node
-*this* process is running on by checking which configured IP (server's or
-peer's) is bound to a local network interface; if the bridge is down and
-neither is, it falls back to assuming the peer (the CLI's usual dev-Mac
-convention). Whichever node resolves as "self" also gets a loopback retry
-(`127.0.0.1:<port>`) if the bridge-IP fetch fails, so solo/fallback
-sessions still show this Mac's own memory pressure without the bridge.
-`combineStats()` reduces both nodes' snapshots into one figure (summed RAM,
-averaged CPU%, max of each temperature) for `/stats`'s "combined" view;
-`/stats` toggles to "split" for the same data shown per-node. Status-panel
-color tiers (`src/ui/colorScale.ts`'s `pressureColor`) are a flat
-green/yellow/red by pressure fraction (<60% / <85% / ≥85%), reused
-identically for RAM and temperature so the panel doesn't invent a new
-color language per metric.
-
-### Rendering (`src/ui/app.tsx`, `src/chat/chatWindow.ts`, `src/ui/markdown.tsx`)
-
-Ink has no real scroll region, so `<Static>` (which permanently flushes to
-terminal scrollback) would push the header/stats panel off-screen as the
-transcript grows. Instead the transcript is windowed to whatever fits the
-terminal height — recomputed every render from `stdout.rows` minus fixed
-line-budget constants (`HEADER_LINES`, `PANEL_FIXED_LINES`, `HELP_LINES`,
-etc.) — so the header stays pinned and only the tail of history is shown
-("↑ N earlier messages" when truncated).
-
-That line budget depends on `chatWindow.ts`'s raw-text line-count estimate
-staying accurate, which is why `markdown.tsx`'s renderer (headings,
-`**bold**`, `` `code` ``, `-`/`*` bullets — the constructs local models
-actually emit, nothing more) is deliberately restricted to *removing*
-marker characters (`###`, `**`, backticks) and never adding wrapped
-markup that could grow a line's rendered height past its raw-text
-estimate. An unterminated marker mid-stream (a `**` with no closing pair
-yet, since replies render incrementally as tokens arrive) falls through
-as literal text rather than being guessed at, so a still-streaming reply
-never flashes half-parsed formatting.
-
-## Data flow summary
-
-```
-you ──▶ mlx-cluster (wherever it runs)
-          │
-          ├─ decides: cluster (m1) or local (this Mac)?  [cluster.ts]
-          ├─ decides: is it the peer's turn to serve?     [splitPolicy.ts]
-          ├─ /mode cluster: shard across both Macs        [distributed.ts]
-          │
-          ▼
-   mlx_lm.server (m1 LaunchAgent, spawned locally,
-                  or one rank per Mac under mlx.launch)
-          │
-          ├─ HF cache (~/.cache/huggingface/hub, offline-only)
-          └─ OpenAI-compatible REST + SSE, port 8080
-
-   macmon serve (both Macs, port 9090) ──▶ stats bar + wear-leveling checks
-```
 
 ## Repo layout
 
