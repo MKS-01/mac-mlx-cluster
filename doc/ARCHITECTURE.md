@@ -161,11 +161,13 @@ Two config files, both under `~/.mlx/` (outside the repo):
 `ClusterConfig` has two `NodeConfig`-shaped entries — `server` (the
 always-on Mac: adds `apiPort`, `plistPath`, `serviceLabel` on top of
 `id`/`ip`/`sshUser`/`macmonPort`) and `peer` (stats-only, never SSH'd for
-control) — plus `defaultModel`, `localApiPort` (for spawning
-`mlx_lm.server` locally in fallback/solo mode), `venvPath`, and
-`distributed.hostfile` (the `mlx.launch` hostfile path; rank 0's bind IP is
-read from that file's first entry at launch time rather than duplicated in
-config). `loadConfig()` merges the on-disk JSON over `DEFAULT_CONFIG` key
+control) — plus `defaultModel`, `agentModel` (the repo id `/agent` sends
+with each turn — independent of whatever chat model the session is
+using), `localApiPort` (for spawning `mlx_lm.server` locally in
+fallback/solo mode), `venvPath`, and `distributed.hostfile` (the
+`mlx.launch` hostfile path; rank 0's bind IP is read from that file's
+first entry at launch time rather than duplicated in config).
+`loadConfig()` merges the on-disk JSON over `DEFAULT_CONFIG` key
 by key, so a config missing a field (or the whole file) silently gets the
 default for just that field — the config-typo footgun called out above.
 
@@ -392,8 +394,9 @@ identically in solo mode on a single Mac.
   domain under `src/cli/src/`: `config/` (static + dynamic config),
   `net/` (ssh/server/macmon — talking to the Macs), `cluster/` (mode
   decision + wear-leveling policy), `models/` (cache listing + `/model`
-  switching), `chat/` (SSE streaming + transcript windowing), `ui/`
-  (Ink `app.tsx`, theme, and `components/`). `index.tsx` is the entry point.
+  switching), `chat/` (SSE streaming + transcript windowing), `agent/`
+  (the `/agent` loop + its four tools), `ui/` (Ink `app.tsx`, theme, and
+  `components/`). `index.tsx` is the entry point.
 - `CLAUDE.md`, `README.md`, `LICENSE` — repo root.
 
 ## References
