@@ -105,14 +105,12 @@ to require hand-typed `mlx.launch` incantations.
 
 ## Documentation
 
-- [`doc/COMMANDS.md`](./doc/COMMANDS.md) — go-to command cheatsheet: models,
-  servers, cluster/sharding, the harness, and diagnostics, grouped by task
+- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — single Mac, zero to
+  chatting, then the full two-Mac walkthrough, every command verified,
+  gotchas included — ends with a go-to command cheatsheet grouped by task
 - [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
   topology, data flow, and *why* the design is shaped this way (also where the
   Python-side dev/lint commands live)
-- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — single Mac, zero to
-  chatting, then the full two-Mac walkthrough, every command verified,
-  gotchas included
 
 Coding agents: `/agent [<dir>]` inside `mlx-cluster` needs no separate setup
 (see its README); the heavier external OpenCode harness — worker + a

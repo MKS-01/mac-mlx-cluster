@@ -89,7 +89,8 @@ mlxctl clean [repo]         # kill stuck downloads, clear stale locks/.incomplet
 mlxctl search <query>       # find a repo on the Hub if you don't have the exact id
 ```
 
-Full command reference (models, servers, cluster, diagnostics): `doc/COMMANDS.md`.
+Full command reference (models, servers, cluster, diagnostics): this doc's
+[Command cheatsheet](#command-cheatsheet) section at the end.
 
 ### Troubleshooting
 
@@ -379,3 +380,102 @@ guide's `ring` instructions still apply verbatim otherwise.
   expands on node A only; the resulting absolute path must also exist on node B.
   If usernames differ between the Macs, use a path that exists on both or
   symlink one.
+
+## Command cheatsheet
+
+The commands you actually reach for day to day, once everything above is set
+up — grouped by task, terse on purpose. The *why* is in the sections above and
+in [`ARCHITECTURE.md`](./ARCHITECTURE.md) (which also covers the OpenCode
+coding-agent harness); this is just the quick reference.
+
+```sh
+source ~/.zshenv                      # if mlx_lm.*/mlxctl aren't on PATH in an open shell
+# MLX venv: ~/.venvs/mlx  ·  models: ~/.cache/huggingface/hub  (neither in this repo)
+```
+
+### Pattern A server (the M1's always-on LaunchAgent)
+
+```sh
+mlxctl server status                  # ●running / ○not — runs launchctl locally or over SSH
+mlxctl server start                   # bring the M1 LaunchAgent server up
+mlxctl server stop                    # unload it (a plain pkill just gets KeepAlive-respawned)
+curl -s http://10.0.0.1:8080/v1/models | python3 -m json.tool   # what it's serving
+```
+
+### Cluster / sharding: keep the M1 awake
+
+`/mode cluster [repo]` inside `mlx-cluster` is the daily driver (§7 above). The
+#1 cause of cluster-mode failures here: the M1 is a MacBook that sleeps, and a
+sleeping M1 makes `mlx.launch`'s SSH to start rank 1 time out →
+`mlx.launch exited during startup (code 0)`.
+
+```sh
+ssh <user>@10.0.0.1 'nohup caffeinate -dimsu >/dev/null 2>&1 &'   # keep awake (no sudo; dies on reboot)
+ssh <user>@10.0.0.1 'pkill -x caffeinate'                          # stop keeping awake
+ssh <user>@10.0.0.1 'sudo pmset -c sleep 0'                        # permanent (needs sudo on the M1)
+```
+
+If a cluster launch fails, the manual command in §7 (run directly instead of
+through the CLI) shows the FULL error — the CLI only shows `mlx.launch`'s last
+8 stderr lines, which hides the real cause behind the teardown traceback.
+
+### Coding-agent harness (OpenCode + local Qwen)
+
+```sh
+harness allow [path]                  # allow a project dir (default: .) — gate is enforced
+harness list                          # ● allowed / ○ missing
+harness deny <path>                   # remove one
+
+cd <allowed-dir>
+harness                               # interactive TUI  (/models to pick, /new, /undo, Esc)
+harness run --dangerously-skip-permissions \
+  -m mlx-local/mlx-community/Qwen3.6-35B-A3B-4bit-DWQ \
+  "create index.html: a simple landing page"        # one-shot
+```
+
+Three things that look like bugs but aren't: pick the **`mlx-local/…`** model when
+the M1 (`mlx-cluster`) is down; `harness run` needs `--dangerously-skip-permissions`
+(else the write tool blocks on an approval prompt); keep one-shot prompts to **one
+short line** (long `opencode run` prompts hang — known OpenCode bug, use the TUI).
+
+Providers are global at `~/.config/opencode/opencode.json`, so any allowed folder
+sees `mlx-local`/`mlx-cluster` with no per-project config. Full detail in
+`ARCHITECTURE.md`'s "Coding-agent harness" section.
+
+### `mlx-cluster` (the chat client)
+
+```sh
+cd src/cli && bun run dev             # run from source
+bun run build                         # → dist/mlx-cluster
+bun run setup                         # install to ~/.local/bin (override: MLX_CLI_BIN_DIR)
+```
+
+In-session: `/mode solo|server|cluster` · `/model [repo]` · `/agent [dir]` ·
+`/split 60/40` · `/stats` · `/help`. Config `~/.mlx/cluster-cli.json`, prefs
+`~/.mlx/cluster-cli-prefs.json` (don't hand-edit while running).
+
+`/agent [<dir>]` is a single-Mac-friendly coding agent built into the client —
+it talks to whatever server the session is already using, no OpenCode or
+second machine needed. See `src/cli/README.md` and `ARCHITECTURE.md`'s
+"In-CLI coding agent" section.
+
+### Diagnostics & cleanup
+
+```sh
+ping -c 3 10.0.0.1                                     # bridge link (M1)
+ssh -o BatchMode=yes -o ConnectTimeout=6 <user>@10.0.0.1 hostname   # SSH + M1 awake?
+ssh-add -l                                            # key loaded? (empty agent = SSH will fail)
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519        # load passphrase key from Keychain
+
+# who's serving / stuck processes, either node
+pgrep -fl 'mlx_lm.server|mlx.launch'
+ssh <user>@10.0.0.1 'pgrep -fl mlx_lm.server'
+lsof -iTCP:8080 -sTCP:LISTEN -n -P                    # who holds :8080
+
+pkill -f mlx_lm.server                                # local sweep
+ssh <user>@10.0.0.1 'pkill -f mlx_lm.server'             # remote sweep
+```
+
+Deeper flows have skills: `/debug` (cluster/CLI misbehaving), `/ssh-check` (bridge
++ keys), `/cleanup` (stuck downloads, orphans, repo hygiene), `/model-transfer`
+(copy a model between Macs).
