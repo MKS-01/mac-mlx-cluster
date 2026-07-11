@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """harness — launch the OpenCode coding agent, only inside allowed projects.
 
-Front door for the harness described in doc/HARNESS.md: refuses to start
-unless the current directory is under a path listed in ~/.mlx/harness-projects
+Front door for the harness described in doc/ARCHITECTURE.md's "Coding-agent
+harness" section: refuses to start unless the current directory is under a
+path listed in ~/.mlx/harness-projects
 (one absolute path per line, '#' comments allowed), then execs `opencode`
 with all arguments passed through.
 
