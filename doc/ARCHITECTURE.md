@@ -425,7 +425,6 @@ Already cached:
 
 - `mlx-community/Qwen3.6-35B-A3B-4bit-DWQ` — the default worker. MoE (fast), DWQ
   (better than plain 4bit at the same size), fits either Mac.
-- `mlx-community/Qwen3.6-27B-4bit` — dense fallback if MoE tool-call JSON flakes.
 - `mlx-community/Qwen3.5-9B-4bit` — quick smoke tests only; too weak as a worker.
 
 Worth downloading later (in this order):
@@ -438,6 +437,15 @@ Worth downloading later (in this order):
    serve as the always-on Pattern A harness model.
 3. `mlx-community/Qwen3.6-35B-A3B-6bit` (~29 GB) — quality ceiling for a single
    Mac here; M5-only, leaves little headroom next to OpenCode's context.
+
+**Removed from the cache and from `opencode.json`:** `mlx-community/Qwen3.6-27B-4bit`
+(was the dense fallback for when the MoE model's tool-call JSON flakes). Worth
+re-downloading and re-adding to both provider blocks later, specifically to
+retest on the *cluster* (`/mode cluster`, Pattern B) rather than as a
+single-Mac fallback — being dense rather than MoE, it's a plausible
+tensor-parallel sharding candidate worth benchmarking against the MoE model's
+measured ~9.6 tok/s (`CLUSTER_SETUP.md` §7) before deciding whether it earns a
+permanent spot back in the harness config.
 
 Add new models to both provider blocks in `opencode.json` when downloaded.
 
