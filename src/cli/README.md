@@ -39,8 +39,8 @@ Terminal chat client + lifecycle manager for the two-Mac MLX cluster
 ## Run
 
 ```sh
-bun run start                    # dev, from source
-./install.sh                     # or: build + install standalone binary
+bun run start                # dev, from source
+./install.sh                 # or: build + install standalone binary
 mlx-cluster                  # after install.sh, from anywhere
 mlx-cluster --model <repo>   # override the default/last-used model
 ```

@@ -441,7 +441,7 @@ only, servers stopped on every exit path, prefs written only through `src/config
    ```
 
 3. **Pick the provider/model** with `/models`: `mlx-cluster/…` targets the Pattern A server
-   on `10.0.0.1:8080`; `mlx-local/…` targets `127.0.0.1:8080`. Both list the same three
+   on `10.0.0.1:8080`; `mlx-local/…` targets `127.0.0.1:8080`. Both list the same
    Qwen models; the server loads whichever is requested from the shared HF cache.
 
 4. **Give it a task.** `AGENTS.md` instructs the worker to invoke the `@evaluator` subagent

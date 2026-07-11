@@ -165,7 +165,7 @@ ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new <user>@10.0.0.2 hostnam
 Each node needs its own MLX venv, **with matching `mlx` versions**:
 
 ```sh
-python3 -m venv ~/.venvs/mlx
+python3.12 -m venv ~/.venvs/mlx
 ~/.venvs/mlx/bin/pip install mlx mlx-lm
 ~/.venvs/mlx/bin/python -c "import mlx.core as mx; print(mx.__version__)"
 ```
@@ -438,9 +438,9 @@ the M1 (`mlx-cluster`) is down; `harness run` needs `--dangerously-skip-permissi
 (else the write tool blocks on an approval prompt); keep one-shot prompts to **one
 short line** (long `opencode run` prompts hang — known OpenCode bug, use the TUI).
 
-Providers are global at `~/.config/opencode/opencode.json`, so any allowed folder
-sees `mlx-local`/`mlx-cluster` with no per-project config. Full detail in
-`ARCHITECTURE.md`'s "Coding-agent harness" section.
+With the providers made global (`~/.config/opencode/opencode.json` — see
+`ARCHITECTURE.md`'s "Using the harness in other projects"), any allowed folder
+sees `mlx-local`/`mlx-cluster` with no per-project config.
 
 ### `mlx-cluster` (the chat client)
 
