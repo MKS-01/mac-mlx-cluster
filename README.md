@@ -13,7 +13,7 @@ or sharded across two when the model is too big for either.
 [![Powered by MLX](https://img.shields.io/badge/Powered%20by-MLX-orange?style=flat-square&labelColor=000000)](https://github.com/ml-explore/mlx)
 
 <!-- Real screenshot: save as doc/img/cli.png and change the src below -->
-<img src="./doc/img/cli.svg" alt="mlx-cluster-cli — live memory bars, model switching, and serving-mode control in one terminal session" width="720">
+<img src="./doc/img/cli.svg" alt="mlx-cluster — live memory bars, model switching, and serving-mode control in one terminal session" width="720">
 
 </div>
 
@@ -33,7 +33,7 @@ failures included — that's where the gotchas sections come from.
    ┌──────────────────────┐                          ┌──────────────────────┐
    │   M5 Pro · 48 GB     │      Thunderbolt 4       │   M1 Pro · 32 GB     │
    │   dev machine        │◀────────────────────────▶│   always-on server   │
-   │   mlx-cluster-cli    │      10.0.0.0/24         │   mlx_lm.server      │
+   │   mlx-cluster        │      10.0.0.0/24         │   mlx_lm.server      │
    └──────────────────────┘                          └──────────────────────┘
 
    solo     one Mac serves the whole model — the other stays 100% free
@@ -44,7 +44,7 @@ failures included — that's where the gotchas sections come from.
 
 ## What's in the box
 
-- **`mlx-cluster-cli`** — terminal chat client + cluster operator: live CPU/GPU/RAM
+- **`mlx-cluster`** — terminal chat client + cluster operator: live CPU/GPU/RAM
   bars for both Macs, in-session model switching, wear-leveling so one machine
   doesn't take all the load, and `/mode cluster` to shard an oversized model
   across both — without leaving your chat.
@@ -84,9 +84,9 @@ export PATH="$HOME/.venvs/mlx/bin:$PATH"   # add to ~/.zshenv to persist
 mlx_lm.chat --model mlx-community/Qwen3.5-9B-4bit --max-tokens 2048
 ```
 
-That's a local LLM, chatting, on one Mac. Details in
-[`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md); when you're ready for the
-second Mac, [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) takes it from here.
+That's a local LLM, chatting, on one Mac. Full walkthrough — this quick
+start plus, when you're ready for the second Mac, the whole cluster build —
+lives in [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md).
 
 For `mlxctl`, symlink it onto your `PATH` and run `mlxctl --help`:
 
@@ -99,18 +99,23 @@ ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) is the full verified
 walkthrough — bridge IPs, SSH mesh, hostfile, smoke test, LaunchAgent, and
 direct server access (`curl`/`ssh`/the zero-dep debug client) if you want it
-raw. Once it's up, [`mlx-cluster-cli`](./src/cli/README.md) handles daily
+raw. Once it's up, [`mlx-cluster`](./src/cli/README.md) handles daily
 driving — `/mode`, `/model`, `/split` — including the sharded mode that used
 to require hand-typed `mlx.launch` incantations.
 
 ## Documentation
 
+- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — single Mac, zero to
+  chatting, then the full two-Mac walkthrough, every command verified,
+  gotchas included — ends with a go-to command cheatsheet grouped by task
 - [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
   topology, data flow, and *why* the design is shaped this way (also where the
   Python-side dev/lint commands live)
-- [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) — single Mac, zero to chatting
-- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — the two-Mac walkthrough,
-  every command verified, gotchas included
+
+Coding agents: `/agent [<dir>]` inside `mlx-cluster` needs no separate setup
+(see its README); the heavier external OpenCode harness — worker + a
+fresh-context evaluator, running on the cluster's own Qwen models — is
+documented in `doc/ARCHITECTURE.md`'s "Coding-agent harness" section.
 
 ## License
 

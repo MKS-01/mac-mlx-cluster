@@ -67,19 +67,6 @@ def repo_to_dir(repo):
 def dir_to_repo(d):
     return d.name.replace("models--", "").replace("--", "/", 1).replace("--", "/")
 
-def du_bytes(path):
-    total = 0
-    for root, _, files in os.walk(path):
-        for f in files:
-            fp = Path(root) / f
-            try:
-                total += fp.stat(follow_symlinks=False).st_size
-                if fp.is_symlink():
-                    total += os.path.realpath(fp) and Path(os.path.realpath(fp)).stat().st_size or 0
-            except OSError:
-                pass
-    return total
-
 def real_size(path):
     """Sum of resolved blob sizes incl. .incomplete temp files (true on-disk)."""
     total = 0
@@ -331,7 +318,7 @@ def cmd_meminfo(args):
         print(f"  OS wired limit (sysctl): {dim('0 — no explicit override; system default applies')}")
     else:
         wired_bytes = wired_mb * 1024 * 1024
-        note = dim(" (resets on reboot unless persisted — see doc/ROADMAP.md)")
+        note = dim(" (resets on reboot unless persisted — see doc/CLUSTER_SETUP.md §9)")
         print(f"  OS wired limit (sysctl): {bold(human(wired_bytes))}{note}")
 
     if not args:

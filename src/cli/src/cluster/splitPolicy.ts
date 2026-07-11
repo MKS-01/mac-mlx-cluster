@@ -21,6 +21,17 @@ export interface SplitHistory {
 export const DEFAULT_SPLIT: SplitTarget = { server: 50, peer: 50 };
 export const EMPTY_HISTORY: SplitHistory = { serverMinutes: 0, peerMinutes: 0 };
 
+// Host-load thresholds (fractions, matching macmon's cpu_usage_pct /
+// gpu_usage[1]), shared by every consumer that asks "is that Mac busy with
+// something else?": the startup wear-leveling check (index.tsx) and the
+// external-activity indicator in the status panel (app.tsx). One definition
+// so the two checks can never drift apart. Below IDLE_* a node is clearly
+// free; at/above BUSY_* something else is working it.
+export const IDLE_CPU_PCT = 0.15;
+export const IDLE_GPU_PCT = 0.1;
+export const BUSY_CPU_PCT = 0.35;
+export const BUSY_GPU_PCT = 0.25;
+
 export const SPLIT_PRESETS: SplitTarget[] = [
   { server: 50, peer: 50 },
   { server: 55, peer: 45 },

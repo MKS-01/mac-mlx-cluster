@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Use when the cluster or mlx-cluster-cli is misbehaving — model won't load, "server unreachable", chat hangs or errors, wrong Mac is serving, or stats show unavailable. Runs a layered diagnostic from the physical link up through the CLI's own config/prefs files. Triggers on "the cluster isn't working", "server won't start", "can't connect", "why is it running on the wrong Mac".
+description: Use when the cluster or mlx-cluster is misbehaving — model won't load, "server unreachable", chat hangs or errors, wrong Mac is serving, or stats show unavailable. Runs a layered diagnostic from the physical link up through the CLI's own config/prefs files. Triggers on "the cluster isn't working", "server won't start", "can't connect", "why is it running on the wrong Mac".
 ---
 
 Diagnose top-down, in this order — each layer's failure explains everything

@@ -2,14 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-This is a docs + tooling repo for Mac cluster setup and experimentation with MLX LLMs on Apple Silicon and across a two-Mac cluster. It holds guides (`doc/MLX_QUICKSTART.md`, `doc/CLUSTER_SETUP.md`), the Python `mlxctl` CLI (no build/test, `ruff` for lint/format — see `doc/ARCHITECTURE.md`), and `src/cli/` — a standalone Bun/TypeScript terminal chat client (see below).
+This is a docs + tooling repo for Mac cluster setup and experimentation with MLX LLMs on Apple Silicon and across a two-Mac cluster. It holds guides (`doc/CLUSTER_SETUP.md`), the Python `mlxctl` CLI (no build/test, `ruff` for lint/format — see `doc/ARCHITECTURE.md`), and `src/cli/` — a standalone Bun/TypeScript terminal chat client (see below).
 
 **Release plan: private now, open-sourced later.** Keep secrets and personal absolute paths out of committed files (or isolate them so they're easy to scrub). Write docs and `mlxctl` for an eventual public audience.
 
 ## Layout
 
-- `doc/` — all markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions) — read it before making non-trivial changes to `src/cli/`. `MLX_QUICKSTART.md`/`CLUSTER_SETUP.md` are the detailed setup docs it links out to. **`ROADMAP.md`** tracks planned-but-not-built work — check it before assuming a feature doesn't exist yet vs. was deliberately deferred.
-- `src/` — all code: `src/tools/` (`mlxctl`, the distributed-MLX benchmark script, the zero-dep chat client, example configs, `requirements*.txt`), `src/cli/` (the TypeScript chat client).
+- `doc/` — two markdown guides. **`ARCHITECTURE.md` is the system-level reference** (topology, data flow, the CLI's internal design decisions, and the external coding-agent harness — OpenCode + evaluator subagent on the cluster's Qwen models, config in root `opencode.json`/`AGENTS.md`) — read it before making non-trivial changes to `src/cli/`. **`CLUSTER_SETUP.md`** is the step-by-step setup doc — single Mac through the full two-Mac cluster build, every command verified, ending in a go-to command cheatsheet grouped by task.
+- `src/` — all code: `src/tools/` (`mlxctl`, `harness` — the allowlist wrapper that gates which dirs may launch the OpenCode agent, symlinked into `~/.venvs/mlx/bin` like `mlxctl`; the distributed-MLX benchmark script, the zero-dep chat client, example configs, `requirements*.txt`), `src/cli/` (the TypeScript chat client).
 - `.claude/skills/` — project skills for common cluster/CLI tasks (`ssh-check`, `debug`, `model-fit`, `model-transfer`, `cleanup`, `design-system`, `mlx-update`). Invoke with `/name` or let Claude pick one up from context.
 - `CLAUDE.md`, `README.md`, `LICENSE` stay at repo root.
 
@@ -48,12 +48,12 @@ Two Macs: **M1 Pro 32 GB (Thunderbolt 4)** + **M5 Pro 48 GB**.
 
 Prefer the newest Qwen (3.6 > 3.5). For 48 GB: 4bit ≈ 15 GB, 6bit ≈ 21 GB, 8bit ≈ 28 GB; `bf16` won't fit. `-DWQ` 4-bit gives better quality than plain 4-bit at the same size. MoE models (`-A3B`) run faster than dense models of similar total size.
 
-## `src/cli/` — mlx-cluster-cli (terminal chat client)
+## `src/cli/` — mlx-cluster (terminal chat client)
 
 Standalone Bun/TypeScript/Ink project living inside this repo — its own `package.json`/lockfile/tsconfig/`.gitignore`, no root-level workspace tooling ties it to the Python side. **See `doc/ARCHITECTURE.md` for the design** (mode decision, wear-leveling split, `/model` switching, why Ink rendering uses a fixed line budget instead of a scroll region) — don't touch line-budget constants in `src/ui/app.tsx` (`HEADER_LINES`, `PANEL_FIXED_LINES`, etc.) without reading that first, or the header/stats panel will silently overflow off-screen.
 
 - `bun run dev` / `bun run start` — run directly from `src/index.tsx` (relative to `src/cli/`).
-- `bun run build` — compiles to `dist/mlx-cluster-cli` (standalone binary).
+- `bun run build` — compiles to `dist/mlx-cluster` (standalone binary).
 - `bun run setup` — runs `install.sh`: `bun install` + build + installs to `~/.local/bin` (override with `MLX_CLI_BIN_DIR`).
 - No lint/test scripts exist.
 - Config at `~/.mlx/cluster-cli.json` (copy from `src/cli/config.example.json`). **Missing file silently falls back to hardcoded defaults** (`10.0.0.1`/`10.0.0.2`) instead of failing — a config typo can look like it worked while talking to the wrong IPs. Malformed JSON does throw (`ConfigError`).

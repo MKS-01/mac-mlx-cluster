@@ -2,9 +2,109 @@
 // same protocol as tools/chat.py, adapted to fetch's ReadableStream so it
 // can drive an Ink UI incrementally instead of printing to stdout.
 
+// "tool" is the OpenAI role for a tool's result; "action" is display-only —
+// it never goes to the server, only into the transcript to show what the
+// agent did (see src/agent/agentLoop.ts and ChatView.tsx). tool_calls /
+// tool_call_id are the OpenAI tool-calling fields, present only on the
+// assistant turn that requests tools and the tool messages that answer them.
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool" | "action";
   content: string;
+  tool_calls?: ApiToolCall[];
+  tool_call_id?: string;
+}
+
+export interface ApiToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+/** An OpenAI-style tool/function definition sent in the request's `tools`. */
+export interface ToolSpec {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface AgentTurnResult {
+  /** Assistant text for this turn (may be empty when it only calls tools). */
+  content: string;
+  /** Tool calls the model wants run before it continues, if any. */
+  toolCalls: ApiToolCall[];
+  finishReason: string | null;
+}
+
+/**
+ * One non-streaming tool-aware turn against /v1/chat/completions. The agent
+ * loop (src/agent/agentLoop.ts) drives this repeatedly: send the running
+ * message list + tool specs, get back either final text or tool calls to
+ * execute. Non-streaming on purpose — accumulating streamed tool_call deltas
+ * is fiddly and error-prone with 4-bit local models, and the loop already
+ * breaks the interaction into discrete tool steps, so there's no live-typing
+ * UX to preserve within a turn. Throws ChatStreamError (display-ready) on any
+ * failure, same contract as streamChat.
+ */
+export async function agentTurn(opts: {
+  base: string;
+  messages: ChatMessage[];
+  tools: ToolSpec[];
+  // Repo id sent as `model` so mlx_lm.server serves/loads it from the shared
+  // cache — lets the agent use its own (lighter, MoE) model regardless of
+  // what the chat session is serving. Omitted → the server's loaded model.
+  model?: string;
+  maxTokens?: number;
+  signal?: AbortSignal;
+}): Promise<AgentTurnResult> {
+  const { base, messages, tools, model, maxTokens = 4096, signal } = opts;
+  let res: Response;
+  try {
+    res = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(model ? { model } : {}), messages, tools, max_tokens: maxTokens, stream: false }),
+      signal,
+    });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw new ChatStreamError("cancelled", err);
+    throw new ChatStreamError(`could not reach server at ${base} — is it still up?`, err);
+  }
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = (await res.text()).slice(0, 500);
+    } catch {
+      // body may already be consumed
+    }
+    throw new ChatStreamError(`server returned ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
+  let body: any;
+  try {
+    body = await res.json();
+  } catch (err) {
+    // An Esc can land while the body is still streaming in, not just during fetch.
+    if ((err as Error).name === "AbortError") throw new ChatStreamError("cancelled", err);
+    throw new ChatStreamError("server returned a non-JSON response to a tool-calling request", err);
+  }
+  const choice = body?.choices?.[0];
+  const msg = choice?.message ?? {};
+  const rawCalls: any[] = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+  const toolCalls: ApiToolCall[] = rawCalls.map((c, i) => ({
+    id: c?.id || `call_${i}`,
+    type: "function",
+    function: {
+      name: c?.function?.name ?? "",
+      arguments: typeof c?.function?.arguments === "string" ? c.function.arguments : JSON.stringify(c?.function?.arguments ?? {}),
+    },
+  }));
+  return {
+    content: typeof msg.content === "string" ? msg.content : "",
+    toolCalls,
+    finishReason: choice?.finish_reason ?? null,
+  };
 }
 
 export class ChatStreamError extends Error {

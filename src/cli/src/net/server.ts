@@ -59,10 +59,14 @@ export async function startLocalServer(
 
   const base = `http://127.0.0.1:${port}`;
 
+  // Normal connects attach to an already-healthy server before ever getting
+  // here (cluster.ts attachOrStartLocal) — reaching this means something
+  // grabbed the port mid-session (e.g. between a /model switch's stop and
+  // respawn), which isn't ours to replace.
   if (await health(base, 800)) {
     throw new LocalSpawnError(
-      `port ${port} is already serving something that isn't healthy as expected, or another ` +
-        `mlx_lm.server is already running locally — stop it first or pick a different --local-port`,
+      `another server is already answering on port ${port} — stop it first, or restart ` +
+        `the CLI with a different --local-port`,
     );
   }
 

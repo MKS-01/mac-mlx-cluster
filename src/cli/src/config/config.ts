@@ -21,6 +21,11 @@ export interface ClusterConfig {
   // The other Mac — used only for its stats (macmon), never SSH'd for control.
   peer: NodeConfig;
   defaultModel: string;
+  // Model the /agent coding loop uses, independent of the chat model — sent in
+  // each agent request so mlx_lm.server loads it from the shared cache. A MoE
+  // (few active params/token) so the agent's many tool rounds stay light on
+  // the GPU vs. a dense model of similar quality.
+  agentModel: string;
   localApiPort: number; // port used when this CLI spawns mlx_lm.server locally (fallback mode)
   venvPath: string; // e.g. ~/.venvs/mlx
   // Pattern B (/mode cluster) — tensor-parallel sharding across both Macs.
@@ -50,6 +55,7 @@ export const DEFAULT_CONFIG: ClusterConfig = {
     macmonPort: 9090,
   },
   defaultModel: "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
+  agentModel: "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   localApiPort: 8080,
   venvPath: join(homedir(), ".venvs", "mlx"),
   distributed: {
@@ -69,6 +75,7 @@ const USER_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
 const HOST_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/; // IPv4, hostname, or bracketed-free IPv6
 const LABEL_RE = /^[a-zA-Z0-9_.-]+$/; // launchd reverse-DNS-style service label
 const PATH_RE = /^[~/][a-zA-Z0-9_./ -]*$/; // absolute or ~-relative unix path, no shell metacharacters
+const REPO_RE = /^[\w.-]+\/[\w.-]+$/; // HF repo id "org/name" — reaches the request body + /model resolution
 
 function assertMatches(value: string, re: RegExp, field: string): void {
   if (!re.test(value)) {
@@ -86,6 +93,7 @@ function validateConfig(c: ClusterConfig): ClusterConfig {
   validateNode(c.peer, "peer");
   assertMatches(c.server.plistPath, PATH_RE, "server.plistPath");
   assertMatches(c.server.serviceLabel, LABEL_RE, "server.serviceLabel");
+  assertMatches(c.agentModel, REPO_RE, "agentModel");
   return c;
 }
 
@@ -114,6 +122,7 @@ export function loadConfig(): ClusterConfig {
     server: { ...DEFAULT_CONFIG.server, ...r.server },
     peer: { ...DEFAULT_CONFIG.peer, ...r.peer },
     defaultModel: r.defaultModel ?? DEFAULT_CONFIG.defaultModel,
+    agentModel: r.agentModel ?? DEFAULT_CONFIG.agentModel,
     localApiPort: r.localApiPort ?? DEFAULT_CONFIG.localApiPort,
     venvPath: r.venvPath ?? DEFAULT_CONFIG.venvPath,
     distributed: { ...DEFAULT_CONFIG.distributed, ...r.distributed },

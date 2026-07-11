@@ -1,5 +1,12 @@
 import type { ClusterConfig } from "../config/config";
-import { isServerUp, pollUntilHealthy, startLocalServer, stopLocalServer, type LocalServerHandle } from "../net/server";
+import {
+  checkHealth,
+  isServerUp,
+  pollUntilHealthy,
+  startLocalServer,
+  stopLocalServer,
+  type LocalServerHandle,
+} from "../net/server";
 import {
   startDistributedServer,
   stopDistributedServer,
@@ -43,6 +50,33 @@ export interface Session {
   // cluster) — disconnect() restarts it so Pattern A's "always-on"
   // invariant holds again once this session ends.
   tookOverFromServer: boolean;
+}
+
+/**
+ * Local serving with attach-first semantics: if something healthy is already
+ * answering on the local port — typically an mlx_lm.server the OpenCode
+ * coding-agent harness (see ARCHITECTURE.md) or a previous session left
+ * running — use it instead of failing to start a second one (which would
+ * double model RAM anyway). localHandle stays null so quit never kills a
+ * process this session doesn't own. The attached server keeps serving
+ * whatever model it was started with; /model on such a session is refused
+ * (see switchModel.ts).
+ */
+async function attachOrStartLocal(
+  config: ClusterConfig,
+  model: string,
+  onStatus: (line: string) => void,
+): Promise<{ base: string; localHandle: LocalServerHandle | null }> {
+  const base = `http://127.0.0.1:${config.localApiPort}`;
+  if (await checkHealth(base, 800)) {
+    onStatus(
+      `a server is already running on port ${config.localApiPort} — attaching to it ` +
+        `(it serves whatever model it was started with)`,
+    );
+    return { base, localHandle: null };
+  }
+  const handle = await startLocalServer(config.venvPath, model, config.localApiPort, onStatus);
+  return { base: handle.base, localHandle: handle };
 }
 
 /**
@@ -107,12 +141,12 @@ export async function connect(
     };
   }
 
-  const handle = await startLocalServer(config.venvPath, model, config.localApiPort, onStatus);
+  const { base, localHandle } = await attachOrStartLocal(config, model, onStatus);
   return {
     mode: "local",
-    base: handle.base,
+    base,
     model,
-    localHandle: handle,
+    localHandle,
     distributedHandle: null,
     serverSshOk: false,
     clusterOrigin: null,
@@ -153,12 +187,12 @@ export async function connectPreferPeer(
     }
   }
 
-  const handle = await startLocalServer(config.venvPath, model, config.localApiPort, onStatus);
+  const { base, localHandle } = await attachOrStartLocal(config, model, onStatus);
   return {
     mode: "local",
-    base: handle.base,
+    base,
     model,
-    localHandle: handle,
+    localHandle,
     distributedHandle: null,
     serverSshOk: false,
     clusterOrigin: null,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Debugging/testing utility: a minimal interactive client for poking an
 mlx_lm.server (OpenAI-compatible) endpoint — verify streaming and multi-turn
-context work end to end without needing mlx-cluster-cli (the real chat
+context work end to end without needing mlx-cluster (the real chat
 client) built or running. For a single-shot check, `curl` is enough
 (see CLUSTER_SETUP.md §8); reach for this when you need more than one turn.
 

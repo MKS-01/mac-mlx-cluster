@@ -15,6 +15,7 @@
     "macmonPort": 9090
   },
   "defaultModel": "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
+  "agentModel": "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   "localApiPort": 8080,
   "venvPath": "/Users/<user>/.venvs/mlx",
   "distributed": {

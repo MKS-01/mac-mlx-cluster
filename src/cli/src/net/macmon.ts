@@ -76,6 +76,7 @@ export interface CombinedStats {
   ramUsedBytes: number;
   ramTotalBytes: number;
   avgCpuPct: number; // average across reachable nodes
+  avgGpuPct: number; // average across reachable nodes
   maxCpuTempC: number;
   maxGpuTempC: number;
   nodesUp: number;
@@ -89,7 +90,10 @@ export function combineStats(nodes: NodeStats[]): CombinedStats {
   const avgCpuPct = up.length
     ? up.reduce((s, n) => s + n.snapshot!.cpu_usage_pct, 0) / up.length
     : 0;
+  const avgGpuPct = up.length
+    ? up.reduce((s, n) => s + n.snapshot!.gpu_usage[1], 0) / up.length
+    : 0;
   const maxCpuTempC = up.length ? Math.max(...up.map((n) => n.snapshot!.temp.cpu_temp_avg)) : 0;
   const maxGpuTempC = up.length ? Math.max(...up.map((n) => n.snapshot!.temp.gpu_temp_avg)) : 0;
-  return { ramUsedBytes, ramTotalBytes, avgCpuPct, maxCpuTempC, maxGpuTempC, nodesUp: up.length, nodesTotal: nodes.length };
+  return { ramUsedBytes, ramTotalBytes, avgCpuPct, avgGpuPct, maxCpuTempC, maxGpuTempC, nodesUp: up.length, nodesTotal: nodes.length };
 }

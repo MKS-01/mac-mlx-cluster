@@ -1,5 +1,5 @@
 {
-  "name": "mlx-cluster-cli",
+  "name": "mlx-cluster",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
-    "build": "bun build ./src/index.tsx --compile --outfile dist/mlx-cluster-cli",
+    "build": "bun build ./src/index.tsx --compile --outfile dist/mlx-cluster",
     "setup": "./install.sh"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-# mlx-cluster-cli
+# mlx-cluster
 
 Terminal chat client + lifecycle manager for the two-Mac MLX cluster
 (see [`../../doc/CLUSTER_SETUP.md`](../../doc/CLUSTER_SETUP.md) and
@@ -18,6 +18,10 @@ Terminal chat client + lifecycle manager for the two-Mac MLX cluster
   Macs for models too big for one.
 - Live per-node CPU/GPU/RAM/temp gauges via `macmon`, and wear-leveling so
   one Mac doesn't take all the serving load over time.
+- `/agent [<dir>]` — a built-in coding agent confined to one directory:
+  plain messages become tasks (bug fixes, doc writing, small features),
+  writes and shell commands ask y/N first. Works on a single Mac — any
+  server the CLI can reach is enough.
 - Anything it started, it tears down on quit — including after a crash.
 
 ## Setup
@@ -37,8 +41,8 @@ Terminal chat client + lifecycle manager for the two-Mac MLX cluster
 ```sh
 bun run start                    # dev, from source
 ./install.sh                     # or: build + install standalone binary
-mlx-cluster-cli                  # after install.sh, from anywhere
-mlx-cluster-cli --model <repo>   # override the default/last-used model
+mlx-cluster                  # after install.sh, from anywhere
+mlx-cluster --model <repo>   # override the default/last-used model
 ```
 
 ## Commands
@@ -47,6 +51,8 @@ mlx-cluster-cli --model <repo>   # override the default/last-used model
 |---|---|
 | `/model [<repo>]` | list cached models / switch |
 | `/mode [solo\|server\|cluster]` | show / switch how the model is served |
+| `/agent [<dir>]` | coding agent here or in `<dir>` (read/write/bash, asks first) |
+| `/agent off` | leave agent mode, back to plain chat |
 | `/stats` | combined ↔ per-node stats |
 | `/split [<ratio>]` | wear-leveling time-share target |
 | `/copy` | copy the last reply |

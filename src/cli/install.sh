@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# mlx-cluster-cli — build a standalone binary and install it on PATH.
+# mlx-cluster — build a standalone binary and install it on PATH.
 #
-#   ./install.sh                  # → ~/.local/bin/mlx-cluster-cli
+#   ./install.sh                  # → ~/.local/bin/mlx-cluster
 #   MLX_CLI_BIN_DIR=/usr/local/bin ./install.sh
 #
 # Re-run after pulling new changes; the binary is self-contained (Bun runtime
@@ -10,7 +10,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 BIN_DIR="${MLX_CLI_BIN_DIR:-$HOME/.local/bin}"
-BIN_NAME="mlx-cluster-cli"
+BIN_NAME="mlx-cluster"
 
 command -v bun >/dev/null 2>&1 || {
   echo "error: bun is required — install it from https://bun.sh" >&2

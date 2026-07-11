@@ -32,7 +32,7 @@ gh api repos/ml-explore/mlx/releases/latest --jq '.tag_name, .body' 2>/dev/null
 authenticated). Skim for anything relevant to this repo: API changes to
 `mx.distributed`, `sharded_load`, `mlx.launch` flags, or `mx.device_info()`
 fields — `src/tools/dist_bench.py`, `src/tools/mlxctl`'s `meminfo`, and
-`mlx-cluster-cli`'s distributed launch code all depend on those staying
+`mlx-cluster`'s distributed launch code all depend on those staying
 stable.
 
 ## Step 2 — check if this Mac is part of the cluster

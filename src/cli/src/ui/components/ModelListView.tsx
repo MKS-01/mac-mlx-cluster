@@ -35,7 +35,13 @@ export function ModelListView({
       </Box>
     );
   }
-  const namePad = Math.max(...models.map((m) => m.repo.length));
+  // Cap the name column so one unusually long repo id can't widen every row
+  // past the terminal and wrap (each wrapped row breaks app.tsx's line
+  // budget). 48 chars fits the usual mlx-community/… ids untruncated.
+  const NAME_MAX = 48;
+  const namePad = Math.min(Math.max(...models.map((m) => m.repo.length)), NAME_MAX);
+  const repoLabel = (repo: string) =>
+    repo.length > NAME_MAX ? `${repo.slice(0, NAME_MAX - 1)}…` : repo.padEnd(namePad);
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text color={DIM}>
@@ -48,7 +54,7 @@ export function ModelListView({
         return (
           <Box key={m.repo}>
             <Text color={BLUE}>{isActive ? "★ " : "  "}</Text>
-            <Text color={isActive ? FG : DIM}>{m.repo.padEnd(namePad)}</Text>
+            <Text color={isActive ? FG : DIM}>{repoLabel(m.repo)}</Text>
             <Text color={DIM}>{"  "}{m.sizeGB.toFixed(1).padStart(5)} GB</Text>
             {verdict && (
               <Text>
