@@ -117,9 +117,16 @@ That's a local LLM, chatting, on one Mac. From there, the two tools in the box:
 ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl
 
 # mlx-cluster — the chat client in the screenshot (needs https://bun.sh)
-cd src/cli && bun run setup                  # build + install to ~/.local/bin
+cd src/cli && ./install.sh                   # deps + standalone binary → ~/.local/bin
 mlx-cluster                                  # solo mode — works fine on one Mac
 ```
+
+`install.sh` does the whole thing: `bun install`, compiles a self-contained
+binary (Bun runtime included), installs it to `~/.local/bin` (override with
+`MLX_CLI_BIN_DIR`), warns if that's not on your `PATH`, and reminds you to
+create `~/.mlx/cluster-cli.json` from `config.example.json` for the two-Mac
+setup. Re-run it after pulling new changes. (`bun run setup` is the same
+script.)
 
 When you're ready for the second Mac, the whole cluster build — bridge IPs
 through the always-on server — lives in
