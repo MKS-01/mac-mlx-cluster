@@ -98,22 +98,32 @@ standalone on a single Apple Silicon machine.
 > cable only matter for the cluster features.
 
 ```sh
+# 1. Get the code
+git clone https://github.com/MKS-01/mac-mlx-cluster.git && cd mac-mlx-cluster
+
+# 2. MLX venv — where the models and servers run
 python3.12 -m venv ~/.venvs/mlx
 ~/.venvs/mlx/bin/pip install mlx-lm
-export PATH="$HOME/.venvs/mlx/bin:$PATH"   # add to ~/.zshenv to persist
+export PATH="$HOME/.venvs/mlx/bin:$PATH"     # add to ~/.zshenv to persist
 
+# 3. First chat — downloads ~5 GB of weights on first run, then loads from cache
 mlx_lm.chat --model mlx-community/Qwen3.5-9B-4bit --max-tokens 2048
 ```
 
-That's a local LLM, chatting, on one Mac. Full walkthrough — this quick
-start plus, when you're ready for the second Mac, the whole cluster build —
-lives in [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md).
-
-For `mlxctl`, symlink it onto your `PATH` and run `mlxctl --help`:
+That's a local LLM, chatting, on one Mac. From there, the two tools in the box:
 
 ```sh
+# mlxctl — model-cache manager (then: mlxctl --help)
 ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl
+
+# mlx-cluster — the chat client in the screenshot (needs https://bun.sh)
+cd src/cli && bun run setup                  # build + install to ~/.local/bin
+mlx-cluster                                  # solo mode — works fine on one Mac
 ```
+
+When you're ready for the second Mac, the whole cluster build — bridge IPs
+through the always-on server — lives in
+[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md).
 
 ## Running the cluster
 
