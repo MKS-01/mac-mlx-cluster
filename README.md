@@ -54,43 +54,36 @@ failures included — that's where the gotchas sections come from.
 
 ## What's in the box
 
-- **`mlx-cluster`** — terminal chat client + cluster operator: live CPU/GPU/RAM
-  bars for both Macs, in-session model switching, wear-leveling so one machine
-  doesn't take all the load, and `/mode cluster` to shard an oversized model
-  across both — without leaving your chat.
+- **`mlx-cluster`** — terminal chat client + cluster operator, one session
+  for everything:
+  - `/mode solo|server|cluster` — switch how the model is served
+    mid-session: this Mac alone, the always-on server, or tensor-sharded
+    across both. No restart, no leaving the chat.
+  - `/model` — list what's cached on the serving node and switch, with a
+    memory-fit verdict against the Mac's real wired-memory ceiling before
+    anything loads.
+  - `/agent <dir>` — a built-in coding agent scoped to one directory,
+    running entirely on your own model: read/write/shell tools, y/N
+    confirmation before writes and commands, no cloud round-trips.
+  - `/stats` and `/split 60/40` — live per-node CPU/GPU/RAM/temp gauges,
+    and wear-leveling that balances serving time so one Mac doesn't
+    quietly take all the GPU wear.
 - **`mlxctl`** — the model-cache manager `hf` should have shipped with: true
   on-disk sizes, per-shard download progress, stuck-download rescue, a
-  will-it-fit verdict against your Mac's real wired-memory ceiling, and
-  one-command server control (`mlxctl server start|stop|status`) that works
-  the same whether you're on the server Mac or not.
-- **Local coding agents** — `/agent <dir>` turns the chat client into a
-  directory-scoped coding agent running entirely on your own model (four
-  sandboxed tools, y/N confirmation for writes and shell). For heavier work
-  there's an external [OpenCode](https://opencode.ai) harness — a worker
-  agent plus a fresh-context evaluator that grades its diffs — gated by a
-  per-directory allowlist (`harness allow`).
+  will-it-fit verdict (`mlxctl meminfo`), and one-command server control
+  (`mlxctl server start|stop|status`) that works the same whether you're on
+  the server Mac or not.
+- **OpenCode harness** — for heavier agent work than `/agent`: an external
+  [OpenCode](https://opencode.ai) worker plus a fresh-context evaluator that
+  grades its diffs, on the same local models, gated by a per-directory
+  allowlist (`harness allow`).
 - **Verified guides** — single-Mac quickstart → Thunderbolt bridge → SSH mesh →
   distributed smoke test → always-on LaunchAgent server, each step actually
   run on the hardware in the diagram above.
 
-Only the cluster pieces need two Macs — the quickstart and `mlxctl` are fully
-standalone on a single Apple Silicon machine.
-
-## Key features
-
-- **Solo, server, or sharded** — `/mode solo|server|cluster` switches how a
-  model is served mid-session, no restart, no leaving the chat.
-- **Wear-leveling** — `/split 60/40` balances serving time between the two
-  Macs so one doesn't quietly take all the GPU wear.
-- **Live cluster stats** — per-node CPU/GPU/RAM/temp gauges, `/stats` to
-  toggle combined vs. per-node view.
-- **Memory-fit verdicts** — models and mode switches are checked against
-  your Mac's real wired-memory ceiling before you commit to loading one.
-- **In-chat coding agent** — `/agent <dir>` scopes the session to one
-  directory and lets the local model read, write, and run commands there,
-  with confirmation prompts and no cloud round-trips.
-- **Zero cloud, ever** — every request stays on the Thunderbolt bridge or
-  localhost; nothing leaves the desk.
+Only the cluster pieces need two Macs — everything else works standalone on a
+single Apple Silicon machine. And zero cloud, ever: every request stays on
+the Thunderbolt bridge or localhost.
 
 ## Quick start
 
@@ -132,28 +125,19 @@ When you're ready for the second Mac, the whole cluster build — bridge IPs
 through the always-on server — lives in
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md).
 
-## Running the cluster
-
-[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) is the full verified
-walkthrough — bridge IPs, SSH mesh, hostfile, smoke test, LaunchAgent, and
-direct server access (`curl`/`ssh`/the zero-dep debug client) if you want it
-raw. Once it's up, [`mlx-cluster`](./src/cli/README.md) handles daily
-driving — `/mode`, `/model`, `/split` — including the sharded mode that used
-to require hand-typed `mlx.launch` incantations.
-
 ## Documentation
 
-- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — single Mac, zero to
-  chatting, then the full two-Mac walkthrough, every command verified,
-  gotchas included — ends with a go-to command cheatsheet grouped by task
+- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — the full verified
+  walkthrough: single Mac zero-to-chatting, then bridge IPs, SSH mesh,
+  hostfile, smoke test, and the always-on LaunchAgent server — ends with a
+  go-to command cheatsheet grouped by task.
 - [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
   a full-system flowchart, topology, data flow, and *why* the design is shaped
-  this way (also where the Python-side dev/lint commands live)
-
-Coding agents: `/agent [<dir>]` inside `mlx-cluster` needs no separate setup
-(see its README); the heavier external OpenCode harness — worker + a
-fresh-context evaluator, running on the cluster's own Qwen models — is
-documented in `doc/ARCHITECTURE.md`'s "Coding-agent harness" section.
+  this way. Also home to the OpenCode harness docs and the Python-side
+  dev/lint commands.
+- [`src/cli/README.md`](./src/cli/README.md) — `mlx-cluster`'s own setup and
+  command reference for daily driving: `/mode`, `/model`, `/agent`, `/split`,
+  and the rest.
 
 ## License
 
