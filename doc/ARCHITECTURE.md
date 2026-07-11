@@ -8,6 +8,47 @@ through the full two-Mac cluster — see
 file's [Coding-agent harness](#coding-agent-harness-opencode--local-qwen)
 section below.
 
+## How it all fits together
+
+```
+ you ──▶ mlx-cluster (chat client + /agent) ──┬─ /mode server ──▶ m1 · mlx_lm.server LaunchAgent
+  │                                           │                   (Pattern A — always-on default)
+  │      startup picks the arrow:             ├─ /mode solo ────▶ this Mac · locally spawned
+  │      m1 reachable? peer's turn            │                   mlx_lm.server (fallback/takeover)
+  │      (wear-leveling)? model fits?         └─ /mode cluster ─▶ both Macs · mlx.launch --backend
+  │      [cluster.ts · splitPolicy.ts]                            ring, tensor-parallel (Pattern B,
+  │                                                               models > ~38 GB only)
+  │
+  ├──▶ harness ──▶ OpenCode (worker + @evaluator) ──▶ whichever mlx_lm.server is up · :8080
+  │
+  └──▶ mlxctl ──▶ HF cache (list/status/download/clean) · server start|stop|status · meminfo
+
+  every server loads from ~/.cache/huggingface/hub, offline-only — the cache is the source of truth
+  macmon serve :9090 (each Mac) ──▶ live stats bar + wear-leveling idle checks
+```
+
+<!-- REVIEW: same diagram twice — ASCII above, Mermaid below. Keep one, delete the other. -->
+
+```mermaid
+flowchart LR
+    you(["you"]) --> cli["mlx-cluster<br/>chat + /agent"]
+    you --> hx["harness → OpenCode<br/>worker + @evaluator"]
+    you --> ctl["mlxctl"]
+
+    cli -->|"/mode server"| A["m1 · mlx_lm.server<br/>LaunchAgent — Pattern A, default"]
+    cli -->|"/mode solo"| B["this Mac · local spawn<br/>fallback / takeover"]
+    cli -->|"/mode cluster"| C["both Macs · mlx.launch ring<br/>tensor-parallel — Pattern B, >~38 GB"]
+    hx -->|"API :8080"| A
+
+    A & B & C --> cache[("HF cache<br/>offline source of truth")]
+    ctl --> cache
+
+    mac["macmon :9090 · each Mac"] -.->|"stats every 2s"| cli
+```
+
+Everything below unpacks this picture layer by layer: hardware, the two
+serving patterns, each tool, and the decisions that route between them.
+
 ## Hardware topology
 
 Two Macs joined by a direct Thunderbolt cable (macOS's `bridge0` interface,

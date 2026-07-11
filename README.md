@@ -4,8 +4,8 @@
 
 **Two Macs. One Thunderbolt cable. Zero cloud.**
 
-Run LLMs on Apple Silicon with [MLX](https://github.com/ml-explore/mlx) — on one Mac,
-or sharded across two when the model is too big for either.
+Run LLMs on Apple Silicon with [MLX](https://github.com/ml-explore/mlx) — solo on
+one Mac, or pooled across two for models neither can hold alone.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange?style=flat-square&labelColor=000000)](./LICENSE)
 ![Platform: Apple Silicon](https://img.shields.io/badge/Platform-Apple%20Silicon-orange?style=flat-square&labelColor=000000&logo=apple&logoColor=white)
@@ -25,8 +25,11 @@ to see if my aging M1 Pro could pull its weight next to a newer Mac.
 [exo](https://github.com/exo-explore/exo) proved it possible, but its
 auto-discovery and web dashboard are overkill for two Macs whose IPs I
 already know — `mlx.launch` does the same job MLX-native with a fraction
-of the moving parts, wrapped here in a proper terminal CLI. Every command
-in [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real,
+of the moving parts, wrapped here in a proper terminal CLI. It then kept
+growing: once the models were being served anyway, the obvious next step
+was pointing coding agents at them — first an external OpenCode harness,
+then an agent built into the chat client itself. Every command in
+[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real,
 failures included — that's where the gotchas sections come from.
 
 ```
@@ -42,6 +45,13 @@ failures included — that's where the gotchas sections come from.
             → 80 GB of combined unified memory for models neither can hold alone
 ```
 
+> Everything here — guides, `mlxctl`, `mlx-cluster` — is built and tested against
+> exactly two Macs, the pair in the diagram above. `mlx.launch`/MLX's
+> distributed layer isn't inherently limited to two nodes, so a larger,
+> N-Mac cluster is plausible in principle, but it's untested and unimplemented
+> here (hostfile generation, `/mode`, and wear-leveling all assume two nodes).
+> Fork it and adapt as needed if that's your use case.
+
 ## What's in the box
 
 - **`mlx-cluster`** — terminal chat client + cluster operator: live CPU/GPU/RAM
@@ -49,8 +59,16 @@ failures included — that's where the gotchas sections come from.
   doesn't take all the load, and `/mode cluster` to shard an oversized model
   across both — without leaving your chat.
 - **`mlxctl`** — the model-cache manager `hf` should have shipped with: true
-  on-disk sizes, per-shard download progress, stuck-download rescue, and a
-  will-it-fit verdict against your Mac's real wired-memory ceiling.
+  on-disk sizes, per-shard download progress, stuck-download rescue, a
+  will-it-fit verdict against your Mac's real wired-memory ceiling, and
+  one-command server control (`mlxctl server start|stop|status`) that works
+  the same whether you're on the server Mac or not.
+- **Local coding agents** — `/agent <dir>` turns the chat client into a
+  directory-scoped coding agent running entirely on your own model (four
+  sandboxed tools, y/N confirmation for writes and shell). For heavier work
+  there's an external [OpenCode](https://opencode.ai) harness — a worker
+  agent plus a fresh-context evaluator that grades its diffs — gated by a
+  per-directory allowlist (`harness allow`).
 - **Verified guides** — single-Mac quickstart → Thunderbolt bridge → SSH mesh →
   distributed smoke test → always-on LaunchAgent server, each step actually
   run on the hardware in the diagram above.
@@ -68,6 +86,9 @@ standalone on a single Apple Silicon machine.
   toggle combined vs. per-node view.
 - **Memory-fit verdicts** — models and mode switches are checked against
   your Mac's real wired-memory ceiling before you commit to loading one.
+- **In-chat coding agent** — `/agent <dir>` scopes the session to one
+  directory and lets the local model read, write, and run commands there,
+  with confirmation prompts and no cloud round-trips.
 - **Zero cloud, ever** — every request stays on the Thunderbolt bridge or
   localhost; nothing leaves the desk.
 
@@ -109,8 +130,8 @@ to require hand-typed `mlx.launch` incantations.
   chatting, then the full two-Mac walkthrough, every command verified,
   gotchas included — ends with a go-to command cheatsheet grouped by task
 - [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
-  topology, data flow, and *why* the design is shaped this way (also where the
-  Python-side dev/lint commands live)
+  a full-system flowchart, topology, data flow, and *why* the design is shaped
+  this way (also where the Python-side dev/lint commands live)
 
 Coding agents: `/agent [<dir>]` inside `mlx-cluster` needs no separate setup
 (see its README); the heavier external OpenCode harness — worker + a
