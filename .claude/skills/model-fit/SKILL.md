@@ -9,7 +9,7 @@ description: Use before downloading or running a model to check whether a given 
 `mx.device_info()`'s `max_recommended_working_set_size` and the live
 `iogpu.wired_limit_mb` sysctl — rather than guessing from a RAM-minus-slack
 heuristic. Use it whenever the model is already cached on the Mac you're
-checking. See `doc/ROADMAP.md`'s wired-memory section and
+checking. See `doc/ARCHITECTURE.md`'s "Wired-memory limit" section and
 `doc/CLUSTER_SETUP.md` §9 for how MLX's automatic per-generation wiring and
 the OS-level ceiling relate.
 

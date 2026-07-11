@@ -84,9 +84,9 @@ export PATH="$HOME/.venvs/mlx/bin:$PATH"   # add to ~/.zshenv to persist
 mlx_lm.chat --model mlx-community/Qwen3.5-9B-4bit --max-tokens 2048
 ```
 
-That's a local LLM, chatting, on one Mac. Details in
-[`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md); when you're ready for the
-second Mac, [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) takes it from here.
+That's a local LLM, chatting, on one Mac. Full walkthrough — this quick
+start plus, when you're ready for the second Mac, the whole cluster build —
+lives in [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md).
 
 For `mlxctl`, symlink it onto your `PATH` and run `mlxctl --help`:
 
@@ -110,11 +110,14 @@ to require hand-typed `mlx.launch` incantations.
 - [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
   topology, data flow, and *why* the design is shaped this way (also where the
   Python-side dev/lint commands live)
-- [`doc/MLX_QUICKSTART.md`](./doc/MLX_QUICKSTART.md) — single Mac, zero to chatting
-- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — the two-Mac walkthrough,
-  every command verified, gotchas included
-- [`doc/HARNESS.md`](./doc/HARNESS.md) — coding-agent harness: OpenCode + a
-  fresh-context evaluator, running on the cluster's own Qwen models
+- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — single Mac, zero to
+  chatting, then the full two-Mac walkthrough, every command verified,
+  gotchas included
+
+Coding agents: `/agent [<dir>]` inside `mlx-cluster` needs no separate setup
+(see its README); the heavier external OpenCode harness — worker + a
+fresh-context evaluator, running on the cluster's own Qwen models — is
+documented in `doc/ARCHITECTURE.md`'s "Coding-agent harness" section.
 
 ## License
 

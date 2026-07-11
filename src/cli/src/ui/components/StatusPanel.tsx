@@ -47,9 +47,10 @@ export function StatusPanel({
   nodes: NodeStats[];
   combined: CombinedStats;
   narrow?: boolean;
-  // Another client (e.g. the doc/HARNESS.md coding agent) is generating on
-  // the serving node while this CLI sits idle — derived in app.tsx's stats
-  // poll, rendered as a suffix so the panel's row count never changes.
+  // Another client (e.g. the OpenCode coding-agent harness — ARCHITECTURE.md's
+  // "Coding-agent harness" section) is generating on the serving node while
+  // this CLI sits idle — derived in app.tsx's stats poll, rendered as a
+  // suffix so the panel's row count never changes.
   externalBusy?: boolean;
 }) {
   return (

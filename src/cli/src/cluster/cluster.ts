@@ -54,12 +54,13 @@ export interface Session {
 
 /**
  * Local serving with attach-first semantics: if something healthy is already
- * answering on the local port — typically an mlx_lm.server the coding-agent
- * harness (doc/HARNESS.md) or a previous session left running — use it
- * instead of failing to start a second one (which would double model RAM
- * anyway). localHandle stays null so quit never kills a process this session
- * doesn't own. The attached server keeps serving whatever model it was
- * started with; /model on such a session is refused (see switchModel.ts).
+ * answering on the local port — typically an mlx_lm.server the OpenCode
+ * coding-agent harness (see ARCHITECTURE.md) or a previous session left
+ * running — use it instead of failing to start a second one (which would
+ * double model RAM anyway). localHandle stays null so quit never kills a
+ * process this session doesn't own. The attached server keeps serving
+ * whatever model it was started with; /model on such a session is refused
+ * (see switchModel.ts).
  */
 async function attachOrStartLocal(
   config: ClusterConfig,

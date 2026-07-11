@@ -1,9 +1,9 @@
 # COMMANDS — go-to cheatsheet
 
 The commands you actually reach for, grouped by task. Terse on purpose; the
-*why* and the full walkthroughs live in [`CLUSTER_SETUP.md`](./CLUSTER_SETUP.md),
-[`HARNESS.md`](./HARNESS.md), and [`ARCHITECTURE.md`](./ARCHITECTURE.md). Gotchas
-inline are ones this setup actually hit.
+*why* and the full walkthroughs live in [`CLUSTER_SETUP.md`](./CLUSTER_SETUP.md)
+and [`ARCHITECTURE.md`](./ARCHITECTURE.md) (the latter also covers the OpenCode
+coding-agent harness). Gotchas inline are ones this setup actually hit.
 
 Topology assumed throughout: **M5 Pro 48 GB** = dev machine (`10.0.0.2`), **M1
 Pro 32 GB** = always-on server (`10.0.0.1`), Thunderbolt bridge between them.
@@ -109,7 +109,7 @@ short line** (long `opencode run` prompts hang — known OpenCode bug, use the T
 
 Providers are global at `~/.config/opencode/opencode.json`, so any allowed folder
 sees `mlx-local`/`mlx-cluster` with no per-project config. Needs a server up on
-`:8080` (local or the M1). See [`HARNESS.md`](./HARNESS.md).
+`:8080` (local or the M1). See `ARCHITECTURE.md`'s "Coding-agent harness" section.
 
 ## mlx-cluster
 

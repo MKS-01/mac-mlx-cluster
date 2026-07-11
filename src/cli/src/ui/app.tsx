@@ -200,8 +200,8 @@ export function App({
 
   // Consecutive stats ticks where the serving node's GPU looked busy while
   // this CLI was idle. Requiring several in a row (~10s at the 2s tick)
-  // filters spikes, same sustained-busy idea as the auto-divert design in
-  // ROADMAP.md; a ref because it must survive re-renders without causing any.
+  // filters spikes rather than reacting to one; a ref because it must
+  // survive re-renders without causing any.
   const externalBusyTicks = useRef(0);
 
   // Stats polling — both nodes independently. The node this CLI runs on
@@ -219,8 +219,9 @@ export function App({
       if (cancelled) return;
       // Harness visibility: GPU load on whichever node(s) serve this session
       // while we're idle means some other client is generating (the shared
-      // server serves the coding-agent harness too — doc/HARNESS.md). Only
-      // sample during idle gaps so our own inference is never mistaken for it.
+      // server serves the OpenCode coding-agent harness too — see
+      // ARCHITECTURE.md). Only sample during idle gaps so our own inference
+      // is never mistaken for it.
       const st = stateRef.current;
       const nodes = [serverStats, peerStats];
       const servingGpu =
