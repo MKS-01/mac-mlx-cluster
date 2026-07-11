@@ -1,8 +1,12 @@
 import React, { useEffect, useReducer, useRef, useState } from "react";
+import { existsSync, statSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import { homedir } from "node:os";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { startSolo, startServer, startCluster, stopCurrentSession, type Session } from "../cluster/cluster";
 import type { ClusterConfig } from "../config/config";
 import { streamChat, ChatStreamError, type ChatMessage } from "../chat/chat";
+import { runAgent, AgentAborted } from "../agent/agentLoop";
 import { switchModel } from "../models/switchModel";
 import { listServerModels, resolveModel, type CachedModel } from "../models/models";
 import { fetchNodeStats, combineStats, selfNodeId, type NodeStats } from "../net/macmon";
@@ -10,7 +14,7 @@ import { loadPrefs, savePrefs } from "../config/prefs";
 import { actualPct, formatSplit, parseSplit, BUSY_GPU_PCT, type SplitTarget } from "../cluster/splitPolicy";
 import { estimatedCeilingGB, fitVerdict } from "../cluster/memory";
 import { windowMessages, estimateLines } from "../chat/chatWindow";
-import { BLUE, DIM } from "./theme";
+import { BLUE, DIM, YELLOW, FG } from "./theme";
 import { Header } from "./components/Header";
 import { StatusPanel } from "./components/StatusPanel";
 import { ChatView } from "./components/ChatView";
@@ -21,7 +25,7 @@ import { InputBar } from "./components/InputBar";
 const HEADER_LINES = 3; // Header.tsx: wordmark row, marginTop, subtitle+version row
 const PANEL_FIXED_LINES = 2; // StatusPanel model + server rows (memory rows counted per view)
 const INPUT_LINES = 3; // InputBar's round border adds a row above and below
-const HELP_LINES = 14; // HelpView.tsx rows + its marginBottom
+const HELP_LINES = 16; // HelpView.tsx rows + its marginBottom
 const PADDING_LINES = 2; // App's paddingY={1} top+bottom
 const SAFETY_MARGIN = 1; // avoid the very last row (some terminals clip it)
 
@@ -39,9 +43,15 @@ interface State {
   splitTarget: SplitTarget;
   nodes: NodeStats[];
   // Another client is generating on the serving node while this CLI is idle
-  // (e.g. the doc/HARNESS.md coding agent) — see the stats poll below.
+  // (e.g. another mlx-cluster or agent session) — see the stats poll below.
   externalBusy: boolean;
   quitting: boolean;
+  // Agentic coding mode (in-CLI replacement for the OpenCode harness): the
+  // working directory the agent is confined to, whether its loop is running,
+  // and a pending write/bash approval it's blocked on. Null root = plain chat.
+  agentRoot: string | null;
+  agentBusy: boolean;
+  pendingConfirm: string | null;
 }
 
 type Action =
@@ -58,7 +68,12 @@ type Action =
   | { type: "setSplitTarget"; target: SplitTarget }
   | { type: "stats"; nodes: NodeStats[]; externalBusy: boolean }
   | { type: "modelSwitched"; session: Session }
-  | { type: "quitting" };
+  | { type: "quitting" }
+  | { type: "enterAgent"; root: string }
+  | { type: "exitAgent" }
+  | { type: "agentBusy"; on: boolean }
+  | { type: "pushMessage"; message: ChatMessage }
+  | { type: "pendingConfirm"; summary: string | null };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -103,6 +118,23 @@ function reducer(state: State, action: Action): State {
       return { ...state, session: action.session, busy: false };
     case "quitting":
       return { ...state, quitting: true };
+    case "enterAgent":
+      return {
+        ...state,
+        agentRoot: action.root,
+        notice: `agent mode on · ${action.root} · plain messages now run the coding agent`,
+        error: null,
+        modelList: null,
+        showHelp: false,
+      };
+    case "exitAgent":
+      return { ...state, agentRoot: null, agentBusy: false, pendingConfirm: null, notice: "agent mode off" };
+    case "agentBusy":
+      return { ...state, agentBusy: action.on };
+    case "pushMessage":
+      return { ...state, history: [...state.history, action.message], modelList: null };
+    case "pendingConfirm":
+      return { ...state, pendingConfirm: action.summary };
   }
 }
 
@@ -139,11 +171,28 @@ export function App({
     nodes: [],
     externalBusy: false,
     quitting: false,
+    agentRoot: null,
+    agentBusy: false,
+    pendingConfirm: null,
   });
 
   const stateRef = useRef(state);
   stateRef.current = state;
   const abortRef = useRef<AbortController | null>(null);
+  // The running API message list for the current agent session (system +
+  // user + assistant/tool turns), kept across messages so a follow-up
+  // continues the same context. Reset when agent mode is (re)entered.
+  const agentHistoryRef = useRef<ChatMessage[]>([]);
+  // Resolver for the in-flight write/bash approval — set when the loop calls
+  // confirm(), fulfilled by the user's y/N in the input bar (or Esc = no).
+  const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
+
+  const resolveConfirm = (ok: boolean) => {
+    const resolve = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    dispatch({ type: "pendingConfirm", summary: null });
+    resolve?.(ok);
+  };
 
   // Consecutive stats ticks where the serving node's GPU looked busy while
   // this CLI was idle. Requiring several in a row (~10s at the 2s tick)
@@ -174,7 +223,11 @@ export function App({
         st.session.mode === "shard"
           ? Math.max(...nodes.map((n) => n.snapshot?.gpu_usage[1] ?? 0))
           : (st.session.mode === "cluster" ? serverStats : peerStats).snapshot?.gpu_usage[1] ?? 0;
-      if (!st.busy && !st.switching && servingGpu >= BUSY_GPU_PCT) externalBusyTicks.current += 1;
+      // "another client" = GPU busy while *we* are idle. Our own load counts
+      // as busy whether it's a chat reply (busy), an agent turn (agentBusy),
+      // or a mode switch (switching) — otherwise the agent's own inference
+      // gets mislabeled as some other client.
+      if (!st.busy && !st.agentBusy && !st.switching && servingGpu >= BUSY_GPU_PCT) externalBusyTicks.current += 1;
       else externalBusyTicks.current = 0;
       dispatch({ type: "stats", nodes, externalBusy: externalBusyTicks.current >= 5 });
     };
@@ -199,16 +252,23 @@ export function App({
   };
 
   useInput((input, key) => {
-    if (key.escape && state.busy) {
-      abortRef.current?.abort();
-    }
+    if (!key.escape) return;
+    // Esc while waiting on an approval = decline it (and abort the loop).
+    if (state.pendingConfirm !== null) resolveConfirm(false);
+    if (state.busy || state.agentBusy) abortRef.current?.abort();
   });
 
   const runChat = async (text: string) => {
     dispatch({ type: "submitUser", text });
     const controller = new AbortController();
     abortRef.current = controller;
-    const messages: ChatMessage[] = [...stateRef.current.history, { role: "user", content: text }];
+    // The display history can contain "action" rows from an earlier agent
+    // session — display-only, not a role the server knows — so only real chat
+    // turns go into the request.
+    const messages: ChatMessage[] = [
+      ...stateRef.current.history.filter((m) => m.role === "user" || m.role === "assistant"),
+      { role: "user", content: text },
+    ];
     // Wall time of the whole exchange (prompt processing + generation) is
     // the proxy for actual GPU load this session put on whichever node
     // served it — idle time waiting for the next message doesn't count.
@@ -233,6 +293,98 @@ export function App({
     } finally {
       abortRef.current = null;
     }
+  };
+
+  // Run one agent task in the current working directory. Plain messages route
+  // here (instead of runChat) whenever agent mode is on. Tool calls, results,
+  // and the model's prose land in the transcript as they happen; write/bash
+  // pause on a y/N prompt through requestConfirm below.
+  const runAgentTask = async (text: string) => {
+    const root = stateRef.current.agentRoot;
+    if (!root) return;
+    dispatch({ type: "pushMessage", message: { role: "user", content: text } });
+    dispatch({ type: "agentBusy", on: true });
+    dispatch({ type: "notice", text: "thinking…" });
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const startedAt = Date.now();
+
+    const requestConfirm = (summary: string) =>
+      new Promise<boolean>((resolve) => {
+        confirmResolveRef.current = resolve;
+        dispatch({ type: "pendingConfirm", summary });
+      });
+
+    try {
+      const { messages } = await runAgent({
+        base: stateRef.current.session.base,
+        model: config.agentModel,
+        root,
+        task: text,
+        history: agentHistoryRef.current,
+        signal: controller.signal,
+        confirm: requestConfirm,
+        onEvent: (e) => {
+          if (e.type === "status") dispatch({ type: "notice", text: e.text });
+          else if (e.type === "assistant") dispatch({ type: "pushMessage", message: { role: "assistant", content: e.text } });
+          else dispatch({ type: "pushMessage", message: { role: "action", content: e.text } });
+        },
+      });
+      agentHistoryRef.current = messages; // continue this session on the next message
+      onActiveTime?.(Date.now() - startedAt);
+      dispatch({ type: "notice", text: null });
+    } catch (err) {
+      onActiveTime?.(Date.now() - startedAt);
+      if (err instanceof AgentAborted) {
+        dispatch({ type: "notice", text: "agent cancelled" });
+      } else {
+        dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
+      }
+    } finally {
+      // A cancel mid-approval can leave a dangling resolver; clear it.
+      if (confirmResolveRef.current) resolveConfirm(false);
+      dispatch({ type: "agentBusy", on: false });
+      abortRef.current = null;
+    }
+  };
+
+  // /agent — turn the CLI into a coding agent scoped to a directory. Bare
+  // `/agent` uses the directory the CLI was launched in (the common case, so
+  // no path to type); `/agent <dir>` scopes it elsewhere; `/agent off`
+  // leaves. In agent mode, plain messages become tasks the model works with
+  // read/list/write/bash tools; writes and bash ask first.
+  const handleAgent = (arg: string | undefined) => {
+    if (stateRef.current.agentBusy) {
+      dispatch({ type: "error", message: "agent is working — Esc to cancel first" });
+      return;
+    }
+    if (arg === "off") {
+      if (!stateRef.current.agentRoot) {
+        dispatch({ type: "notice", text: "not in agent mode" });
+        return;
+      }
+      agentHistoryRef.current = [];
+      dispatch({ type: "exitAgent" });
+      return;
+    }
+    // Normalize the path arg the way a shell would but the CLI's own splitter
+    // doesn't: drop surrounding quotes (users quote paths with spaces) and
+    // expand a leading ~. Then relative paths resolve against the CLI's cwd.
+    const cleaned = arg?.trim().replace(/^['"]|['"]$/g, "");
+    // No arg: enter here (cwd) if not already in agent mode; if we are,
+    // just report the current root rather than silently re-entering it.
+    if (!cleaned && stateRef.current.agentRoot) {
+      dispatch({ type: "notice", text: `agent mode on · ${stateRef.current.agentRoot} · /agent off to exit` });
+      return;
+    }
+    const expanded = cleaned?.startsWith("~") ? resolvePath(homedir(), "." + cleaned.slice(1)) : cleaned;
+    const abs = !expanded ? process.cwd() : expanded.startsWith("/") ? expanded : resolvePath(process.cwd(), expanded);
+    if (!existsSync(abs) || !statSync(abs).isDirectory()) {
+      dispatch({ type: "error", message: `not a directory: ${abs}` });
+      return;
+    }
+    agentHistoryRef.current = []; // fresh session for a new/reselected root
+    dispatch({ type: "enterAgent", root: abs });
   };
 
   // /model — list what's cached on the serving node; /model <arg> — resolve
@@ -500,6 +652,9 @@ export function App({
       case "mode":
         handleMode(arg);
         break;
+      case "agent":
+        handleAgent(arg);
+        break;
       case "copy": {
         const lastReply = [...stateRef.current.history].reverse().find((m) => m.role === "assistant");
         if (!lastReply) {
@@ -524,6 +679,12 @@ export function App({
 
   const handleSubmit = (raw: string) => {
     const value = raw.trim();
+    // A pending write/bash approval consumes the next line entirely (even a
+    // /command): y/yes runs the tool, anything else declines it.
+    if (state.pendingConfirm !== null) {
+      resolveConfirm(/^y(es)?$/i.test(value));
+      return;
+    }
     if (!value) return;
     if (value === "q") {
       startQuit();
@@ -531,6 +692,10 @@ export function App({
     }
     if (value.startsWith("/")) {
       handleCommand(value);
+      return;
+    }
+    if (state.agentRoot) {
+      runAgentTask(value);
       return;
     }
     runChat(value);
@@ -566,6 +731,7 @@ export function App({
     (state.showHelp ? HELP_LINES : 0) +
     modelListLines +
     (state.notice ? 1 : 0) +
+    (state.agentRoot ? 1 : 0) + // agent bar: mode hint or the y/N approval prompt
     (showCopyHint ? 1 : 0) +
     INPUT_LINES +
     PADDING_LINES +
@@ -635,6 +801,19 @@ export function App({
           <Text color={DIM}>{state.notice}</Text>
         </Box>
       )}
+      {state.agentRoot && (
+        <Box>
+          {state.pendingConfirm ? (
+            <Text color={YELLOW} wrap="truncate-end">
+              ⚠ run <Text color={FG}>{state.pendingConfirm}</Text>? [y/N]
+            </Text>
+          ) : (
+            <Text color={DIM} wrap="truncate-end">
+              agent · {config.agentModel.split("/").pop()} · {state.agentRoot} · /agent off to exit
+            </Text>
+          )}
+        </Box>
+      )}
 
       <ChatView
         visible={visible}
@@ -653,8 +832,16 @@ export function App({
       )}
 
       <InputBar
-        disabled={state.busy || state.switching}
-        busyText={state.switching ? "switching — serving is restarting… (big models can take a while)" : undefined}
+        // The approval prompt keeps the bar enabled even though the agent is
+        // "busy" — that's how the user answers y/N.
+        disabled={(state.busy || state.switching || state.agentBusy) && state.pendingConfirm === null}
+        busyText={
+          state.switching
+            ? "switching — serving is restarting… (big models can take a while)"
+            : state.agentBusy
+              ? "agent working… (esc to cancel)"
+              : undefined
+        }
         onSubmit={handleSubmit}
       />
     </Box>

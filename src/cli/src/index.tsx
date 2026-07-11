@@ -39,12 +39,12 @@ function parseArgs() {
       }
       localPort = port;
     } else if (args[i] === "--version" || args[i] === "-v") {
-      console.log(`mlx-cluster-cli ${version}`);
+      console.log(`mlx-cluster ${version}`);
       process.exit(0);
     } else if (args[i] === "--help" || args[i] === "-h") {
       console.log(
         [
-          "mlx-cluster-cli [--model <repo>] [--local-port <port>] [--version]",
+          "mlx-cluster [--model <repo>] [--local-port <port>] [--version]",
           "",
           "  --model <repo>       start with this model instead of the last-used one",
           "  --local-port <port>  port for a locally spawned server this session (default: config localApiPort)",

@@ -7,6 +7,13 @@ the result before the task is declared done. The worker is [OpenCode](https://op
 pointed at `mlx_lm.server`'s OpenAI-compatible API; the evaluator is an OpenCode subagent
 defined in this repo's `opencode.json`.
 
+> For quick tasks — a bug fix, writing a doc, a small feature — the chat client has a
+> built-in agent that needs none of this: `/agent [<dir>]` inside `mlx-cluster` (see
+> `ARCHITECTURE.md` § In-CLI coding agent and `COMMANDS.md`). It runs against whatever
+> server the CLI is already using, so it works on a single Mac with zero extra install.
+> This harness is the heavier option: separate worker/evaluator agents and OpenCode's
+> full tool set.
+
 Why this shape (short version of the article): models grade their own work too generously,
 so generation and evaluation are split; the evaluator runs in a fresh context (a subagent)
 so it judges the diff on evidence, not on the worker's narrative; explicit grading criteria
@@ -57,10 +64,10 @@ only, servers stopped on every exit path, prefs written only through `src/config
    also invoke it manually: `@evaluator check the last change against <task>`.
 
 One server, all clients: the harness deliberately shares whatever `mlx_lm.server` is
-already running — the LaunchAgent on the M1, or the one `mlx-cluster-cli`'s local
+already running — the LaunchAgent on the M1, or the one `mlx-cluster`'s local
 fallback started. Never start a second server on the same Mac for the harness (it
 would double model RAM); conversely, if the harness's own local server is running on
-port 8080, `mlx-cluster-cli`'s local fallback will refuse to start its own there —
+port 8080, `mlx-cluster`'s local fallback will refuse to start its own there —
 one of them owns the port, both can talk to it.
 
 ## Gating which projects can run the agent
@@ -126,7 +133,7 @@ Add new models to both provider blocks in `opencode.json` when downloaded.
 
 Only OpenCode is directory-bound: the directory you launch `opencode` in is its
 workspace — it loads `opencode.json` and `AGENTS.md` from there, and its tools operate
-on that tree. The serving side (`mlx_lm.server`, the models, `mlx-cluster-cli`) is
+on that tree. The serving side (`mlx_lm.server`, the models, `mlx-cluster`) is
 completely project-independent; a new project needs zero new server setup.
 
 To use the same local models in another project, get the provider config there one of

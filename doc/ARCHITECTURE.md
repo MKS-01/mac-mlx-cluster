@@ -122,7 +122,7 @@ raising and persisting the sysctl (`wired-limit.example.plist`, a
 LaunchDaemon rather than the server's LaunchAgent, so it doesn't need a
 logged-in GUI session to load).
 
-## `src/cli` — mlx-cluster-cli
+## `src/cli` — mlx-cluster
 
 Bun + TypeScript + Ink terminal client. Fully standalone (own
 `package.json`/lockfile), no monorepo tooling ties it to the Python side.
@@ -271,6 +271,44 @@ budget before any real content is emitted. The client detects this
 (`finish_reason: "length"` with zero content chunks) and surfaces a clear
 error instead of silently rendering an empty reply.
 
+### In-CLI coding agent (`/agent`, `src/agent/`)
+
+`/agent <dir>` turns the chat client into a coding agent scoped to one
+directory — the in-CLI replacement for the external OpenCode harness. Plain
+messages then route through `runAgent` (`src/agent/agentLoop.ts`) instead of
+`streamChat`: it sends the running message list plus tool specs to the same
+`mlx_lm.server` (which has native Qwen tool calling) via `agentTurn`
+(`src/chat/chat.ts`, non-streaming — accumulating streamed `tool_call` deltas
+is fragile with 4-bit locals, and the loop already breaks work into discrete
+steps), runs whatever tools the model asks for, feeds the results back, and
+repeats until the model answers with no tool calls or a round cap is hit.
+
+Four tools (`src/agent/tools.ts`): `read_file`, `list_dir`, `write_file`,
+`bash`. Every path is `confine()`d to the working directory — a model-supplied
+`../`, absolute path, or symlink that escapes root is refused (symlinks via a
+realpath check on the nearest existing ancestor), since the model runs on
+the same machine as the user's files and this boundary is the only guardrail.
+`bash` spawns asynchronously with a hard 120s timeout — a synchronous spawn
+would freeze the Ink render loop (and Esc) for the whole command, and a hung
+command would wedge the agent forever.
+`write_file` and `bash` carry `needsConfirm`; the loop calls a `confirm()`
+callback for those, which `app.tsx` wires to a `y/N` prompt in the input bar
+(the bar stays enabled during `pendingConfirm` even though the agent is
+"busy", so the user can answer; Esc declines and aborts). Tool calls, results,
+and the model's prose become transcript messages — the model's text as
+`assistant`, each tool call/result as a display-only `action` row (a compact
+dim line, no gutter marker) — so they flow through the same height-budget
+windowing as chat with no new line-budget constant beyond a one-line agent
+bar. The running API message list is kept in a ref across messages, so a
+follow-up continues the same agent session; `/agent off` (or a new `<dir>`)
+resets it. Because those `action` rows aren't a real API role, `runChat`
+filters the display history down to `user`/`assistant` turns before sending.
+
+The agent needs nothing cluster-specific: it uses `session.base`, so it works
+identically in solo mode on a single Mac — that (plus zero install) is what it
+buys over the external OpenCode harness (`HARNESS.md`), which remains the
+heavier worker+evaluator option.
+
 ### Stats polling (`src/net/macmon.ts`)
 
 Every 2s, `app.tsx` fetches `http://<host>:<macmonPort>/json` from
@@ -317,7 +355,7 @@ never flashes half-parsed formatting.
 ## Data flow summary
 
 ```
-you ──▶ mlx-cluster-cli (wherever it runs)
+you ──▶ mlx-cluster (wherever it runs)
           │
           ├─ decides: cluster (m1) or local (this Mac)?  [cluster.ts]
           ├─ decides: is it the peer's turn to serve?     [splitPolicy.ts]

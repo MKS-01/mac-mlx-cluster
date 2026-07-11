@@ -74,6 +74,18 @@ export function ChatView({
           <Row key={i} marker="❯" markerColor={BLUE}>
             <Text color={DIM}>{cleanBody(msg.content)}</Text>
           </Row>
+        ) : msg.role === "action" ? (
+          // Agent tool activity: one dim line per call/result (content already
+          // carries a ✓/✗ prefix), tight (no marker) so a multi-tool turn
+          // reads as a compact log, not spaced-out chat turns.
+          <Box key={i}>
+            <Box width={2} flexShrink={0} />
+            <Box flexGrow={1}>
+              <Text color={DIM} wrap="truncate-end">
+                {msg.content}
+              </Text>
+            </Box>
+          </Box>
         ) : (
           <Row key={i} marker="●" markerColor={BLUE}>
             <Markdown text={cleanBody(msg.content)} />

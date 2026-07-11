@@ -112,7 +112,7 @@ rank 1/2 all_sum -> [2.0, 2.0, 2.0, 2.0]
 ## 7. Distributed inference (sharding a model across both Macs)
 
 Only worth it for models too big for one Mac — sharding aggregates memory, not
-speed. The `mlx-cluster-cli` chat client can drive this whole section for you
+speed. The `mlx-cluster` chat client can drive this whole section for you
 (`/mode cluster [<model>]` — see `src/cli/README.md`); what follows is the
 underlying manual mechanism, which the CLI wraps. Two modes, chosen per model
 architecture:
@@ -208,7 +208,7 @@ curl -s http://10.0.0.1:8080/v1/chat/completions -H 'Content-Type: application/j
 ```
 
 Or point any OpenAI SDK at `base_url="http://10.0.0.1:8080/v1"` (any API key),
-or — to test more than one exchange without building `mlx-cluster-cli` —
+or — to test more than one exchange without building `mlx-cluster` —
 use this repo's zero-dependency debugging/testing client:
 
 ```sh
