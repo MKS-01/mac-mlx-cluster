@@ -246,7 +246,17 @@ Mode switches tear down the old serving arrangement first
 (`stopCurrentSession`) but do *not* restore Pattern A — only quitting does.
 The restore-on-quit obligation (`tookOverFromServer`) carries forward
 across switches, so however many `/mode` hops a session takes, quit still
-brings the server node's LaunchAgent back exactly once. Teardown of a
+brings the server node's LaunchAgent back exactly once.
+
+Every exit path runs that quit cleanup against the *current* session (App
+reports session swaps to index.tsx via `onSessionChange`, so signal handlers
+never tear down a stale startup session): `q`//`/quit` and Ctrl+C take the
+awaited `disconnect()` (Ink's raw mode swallows SIGINT, so `exitOnCtrlC` is
+disabled and App routes Ctrl+C through the same quit path — a second Ctrl+C
+mid-teardown force-exits); SIGTERM and SIGHUP (terminal window closed) get
+their own handlers, since a default-action signal death skips the `exit`
+event entirely; crashes (`uncaughtException`/`unhandledRejection`) and the
+`exit` event fall back to `disconnectSync`, best-effort synchronous cleanup. Teardown of a
 sharded group also sweeps the server node for an orphaned `mlx_lm.server`
 rank over SSH (whether `mlx.launch` reaps its remote rank on SIGTERM is
 unverified on this hardware — the sweep is idempotent either way).

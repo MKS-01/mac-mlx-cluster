@@ -125,6 +125,9 @@ function shutdownSyncFallback(): void {
   disconnectSync(config, session);
 }
 
+// SIGINT only fires while the terminal isn't in Ink's raw mode (during the
+// startup prompts, or if raw mode failed) — once Ink is up, Ctrl+C is
+// keyboard input and App routes it through the same startQuit as /quit.
 process.on("SIGINT", async () => {
   await shutdown();
   process.exit(0);
@@ -133,8 +136,28 @@ process.on("SIGTERM", async () => {
   await shutdown();
   process.exit(0);
 });
+// Terminal window closed / SSH connection dropped. Without a handler the
+// default action kills the process WITHOUT running the 'exit' event, so
+// nothing would stop a shard ring, boot out a server we started, or restore
+// a taken-over LaunchAgent. stdout may already be gone here, so any write
+// failure inside cleanup must not abort it.
+process.on("SIGHUP", async () => {
+  try {
+    await shutdown();
+  } catch {
+    // best-effort — the terminal is gone, nowhere to report to
+  }
+  process.exit(0);
+});
 process.on("exit", shutdownSyncFallback);
 process.on("uncaughtException", (err) => {
+  console.error(red(String(err instanceof Error ? err.stack ?? err.message : err)));
+  shutdownSyncFallback();
+  process.exit(1);
+});
+// Bun treats these as fatal like uncaughtException; same safety net so an
+// unawaited promise blowing up still tears the servers down.
+process.on("unhandledRejection", (err) => {
   console.error(red(String(err instanceof Error ? err.stack ?? err.message : err)));
   shutdownSyncFallback();
   process.exit(1);
@@ -241,7 +264,17 @@ const ink = render(
     onActiveTime={(ms) => {
       sessionActiveMs += ms;
     }}
+    // /mode and /model switches replace the session inside App; every exit
+    // path here (signals, 'exit', crashes) must clean up the CURRENT one —
+    // cleaning up the startup session would orphan whatever a switch spawned
+    // and skip restoring a taken-over LaunchAgent.
+    onSessionChange={(s) => {
+      session = s;
+    }}
   />,
+  // Ctrl+C: Ink's default handler just unmounts, skipping teardown — App's
+  // useInput routes it through the same graceful quit as /quit instead.
+  { exitOnCtrlC: false },
 );
 
 // On resize the previous frame re-wraps, so ink erases the wrong number of

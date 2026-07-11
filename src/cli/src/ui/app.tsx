@@ -143,6 +143,7 @@ export function App({
   session: initialSession,
   onQuit,
   onActiveTime,
+  onSessionChange,
 }: {
   config: ClusterConfig;
   session: Session;
@@ -151,6 +152,9 @@ export function App({
   // messages) after each exchange, so index.tsx can credit it to whichever
   // node served this session for the wear-leveling split (splitPolicy.ts).
   onActiveTime?: (deltaMs: number) => void;
+  // Fires whenever a /mode or /model switch replaces the session, so
+  // index.tsx's signal/exit/crash handlers always tear down the current one.
+  onSessionChange?: (session: Session) => void;
 }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -239,7 +243,15 @@ export function App({
     };
   }, []);
 
+  // Keep index.tsx's exit/signal cleanup pointed at the live session — /mode
+  // and /model switches replace it, and tearing down the startup session
+  // instead would orphan whatever the switch spawned.
+  useEffect(() => {
+    onSessionChange?.(state.session);
+  }, [state.session]);
+
   const startQuit = () => {
+    if (stateRef.current.quitting) return; // a second Ctrl+C/q mid-teardown must not re-enter
     dispatch({ type: "quitting" });
     abortRef.current?.abort();
     // onQuit may need to SSH bootout a server this session started (see
@@ -252,6 +264,16 @@ export function App({
   };
 
   useInput((input, key) => {
+    // Ink's raw mode swallows the SIGINT Ctrl+C would normally raise, and its
+    // built-in exitOnCtrlC just unmounts without teardown — so it's disabled
+    // (index.tsx) and Ctrl+C takes the same graceful quit path as /quit.
+    if (key.ctrl && input === "c") {
+      // Second Ctrl+C while teardown is in flight = force quit (e.g. the SSH
+      // restore is hanging); cleanup already ran as far as it got.
+      if (stateRef.current.quitting) process.exit(130);
+      startQuit();
+      return;
+    }
     if (!key.escape) return;
     // Esc while waiting on an approval = decline it (and abort the loop).
     if (state.pendingConfirm !== null) resolveConfirm(false);
