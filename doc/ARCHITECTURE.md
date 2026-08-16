@@ -377,6 +377,42 @@ sharded group also sweeps the server node for an orphaned `mlx_lm.server`
 rank over SSH (whether `mlx.launch` reaps its remote rank on SIGTERM is
 unverified on this hardware — the sweep is idempotent either way).
 
+### Ollama backend (`/mode ollama`, `src/net/ollama.ts`)
+
+Ollama ships its own MLX runner and its own model store, so models pulled
+with `ollama pull` are invisible to this repo's HF cache — and would
+otherwise have to be downloaded a second time to be usable here. Since
+Ollama exposes an OpenAI-compatible API (`/v1/models`,
+`/v1/chat/completions`), reaching them is a *connection* problem, not a
+format-conversion one: `startOllama` points the session's `base` at the
+daemon and everything downstream (`streamChat`, `agentTurn`, the usage
+line) works unmodified.
+
+That `base` is deliberately `http://host:port` with **no** `/v1` suffix —
+every consumer appends `/v1/...` itself, and including it here produces
+`/v1/v1/chat/completions` and a 404.
+
+Ownership follows the same attach-vs-start rule as the server node's
+LaunchAgent: a daemon that was already running is used but never stopped on
+quit (`OllamaHandle.proc` stays null), since Ollama is typically
+long-running shared infrastructure with other clients attached. Only a
+daemon this session spawned is torn down.
+
+Two differences from an `mlx_lm.server` session, both benign:
+
+- **`/model` lists Ollama's store**, via `/api/tags` rather than a `du` over
+  the HF cache — those are different model sets, and Ollama's names
+  (`qwen3.8:27b-mlx`) are not HF repo ids.
+- **The usage line has no `cached` figure and computes tok/s client-side**,
+  because Ollama sends neither `prompt_tokens_details` nor a `timings`
+  block. Both are existing fallbacks in `chat.ts`.
+
+Sharding (`/mode cluster`) does not apply: tensor parallelism is an
+`mlx_lm.server` + `mlx.launch` feature, and Ollama manages its own runtime.
+Worth knowing: Ollama's `-mlx` builds ship a speculative-decoding draft
+model, which is why they can generate faster than this Mac's memory
+bandwidth would allow for a dense model of that size.
+
 ### `/model` switching (`src/models/models.ts`, `src/models/switchModel.ts`)
 
 Lists/resolves against the HF cache actually present on the *serving* node

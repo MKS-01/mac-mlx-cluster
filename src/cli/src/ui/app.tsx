@@ -3,11 +3,12 @@ import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { startSolo, startServer, startCluster, stopCurrentSession, agentModelFor, type Session } from "../cluster/cluster";
+import { startSolo, startServer, startCluster, startOllama, stopCurrentSession, agentModelFor, type Session } from "../cluster/cluster";
 import type { ClusterConfig } from "../config/config";
 import { streamChat, formatUsage, ChatStreamError, type ChatMessage } from "../chat/chat";
 import { runAgent, AgentAborted } from "../agent/agentLoop";
 import { switchModel } from "../models/switchModel";
+import { listOllamaModels } from "../net/ollama";
 import { listServerModels, resolveModel, type CachedModel } from "../models/models";
 import { fetchNodeStats, combineStats, selfNodeId, type NodeStats } from "../net/macmon";
 import { loadPrefs, savePrefs } from "../config/prefs";
@@ -25,7 +26,7 @@ import { InputBar } from "./components/InputBar";
 const HEADER_LINES = 3; // Header.tsx: wordmark row, marginTop, subtitle+version row
 const PANEL_FIXED_LINES = 2; // StatusPanel model + server rows (memory rows counted per view)
 const INPUT_LINES = 3; // InputBar's round border adds a row above and below
-const HELP_LINES = 16; // HelpView.tsx rows + its marginBottom
+const HELP_LINES = 17; // HelpView.tsx rows + its marginBottom
 const PADDING_LINES = 2; // App's paddingY={1} top+bottom
 const SAFETY_MARGIN = 1; // avoid the very last row (some terminals clip it)
 
@@ -547,6 +548,7 @@ export function App({
   const describeMode = (s: Session): string => {
     if (s.mode === "shard") return "cluster — sharded across all nodes";
     if (s.mode === "cluster") return `server — ${config.server.id} serves the whole model`;
+    if (s.mode === "ollama") return "ollama — served by the local ollama daemon";
     return "solo — this Mac serves the whole model";
   };
 
@@ -600,7 +602,7 @@ export function App({
     if (!sub) {
       dispatch({
         type: "notice",
-        text: `mode: ${describeMode(session)} · /mode solo | server | cluster [<model>]`,
+        text: `mode: ${describeMode(session)} · /mode solo | server | cluster | ollama [<model>]`,
       });
       return;
     }
@@ -620,8 +622,34 @@ export function App({
       await replaceSession(session, session.model, startServer);
       return;
     }
+    // ollama: its model names ("qwen3.8:27b-mlx") are not HF repo ids and its
+    // store is separate from the HF cache, so resolve the optional model arg
+    // against the daemon's own list rather than the serving node's cache.
+    if (sub === "ollama") {
+      let target = modelArg ?? session.model;
+      const listRes = await listOllamaModels(config.ollama.host, config.ollama.port).catch(() => null);
+      if (listRes) {
+        const resolved = resolveModel(target, listRes);
+        if (resolved.kind === "ambiguous") {
+          dispatch({ type: "error", message: `"${target}" matches: ${resolved.repos.join(", ")} — be more specific` });
+          return;
+        }
+        // No match: fall through as typed so startOllama reports what IS
+        // available, rather than guessing a model here.
+        if (resolved.kind === "match") target = resolved.repo;
+      }
+      if (session.mode === "ollama" && target === session.model) {
+        dispatch({ type: "notice", text: `already serving ${target} through ollama` });
+        return;
+      }
+      await replaceSession(session, target, startOllama);
+      return;
+    }
     if (sub !== "cluster") {
-      dispatch({ type: "error", message: `unknown mode "${sub}" — /mode solo | server | cluster [<model>]` });
+      dispatch({
+        type: "error",
+        message: `unknown mode "${sub}" — /mode solo | server | cluster | ollama [<model>]`,
+      });
       return;
     }
 
@@ -807,7 +835,13 @@ export function App({
         <ModelListView
           models={state.modelList}
           current={state.session.model}
-          nodeId={state.session.mode === "local" ? "this Mac" : config.server.id}
+          nodeId={
+            state.session.mode === "ollama"
+              ? "ollama"
+              : state.session.mode === "local"
+                ? "this Mac"
+                : config.server.id
+          }
           // fit is judged against the RAM of whichever node(s) serve: nodes
           // is [server, peer]; in local mode "this Mac" is the peer (the dev
           // machine serving itself), and shard mode aggregates both nodes'

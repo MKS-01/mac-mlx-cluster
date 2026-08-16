@@ -39,6 +39,10 @@ export interface ClusterConfig {
   agentModel: string;
   localApiPort: number; // port used when this CLI spawns mlx_lm.server locally (fallback mode)
   venvPath: string; // e.g. ~/.venvs/mlx
+  // /mode ollama — serve through a local Ollama daemon instead of this repo's
+  // venv. Lets Ollama-pulled `-mlx` models be used without downloading a
+  // second copy into the HF cache (see src/net/ollama.ts).
+  ollama: { host: string; port: number };
   // Pattern B (/mode cluster) — tensor-parallel sharding across both Macs.
   distributed: {
     // mlx.launch hostfile; rank 0's bind IP is read from this file at launch
@@ -70,6 +74,7 @@ export const DEFAULT_CONFIG: ClusterConfig = {
   agentModel: "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   localApiPort: 8080,
   venvPath: join(homedir(), ".venvs", "mlx"),
+  ollama: { host: "127.0.0.1", port: 11434 },
   distributed: {
     hostfile: join(homedir(), ".mlx", "tb-ring-hostfile.json"),
   },
@@ -143,6 +148,7 @@ export function loadConfig(): ClusterConfig {
     agentModel: r.agentModel ?? DEFAULT_CONFIG.agentModel,
     localApiPort: r.localApiPort ?? DEFAULT_CONFIG.localApiPort,
     venvPath: r.venvPath ?? DEFAULT_CONFIG.venvPath,
+    ollama: { ...DEFAULT_CONFIG.ollama, ...r.ollama },
     distributed: { ...DEFAULT_CONFIG.distributed, ...r.distributed },
   });
 }

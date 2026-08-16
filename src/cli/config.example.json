@@ -18,6 +18,7 @@
   "defaultModel": "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   "agentModel": "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   "localApiPort": 8080,
+  "ollama": { "host": "127.0.0.1", "port": 11434 },
   "venvPath": "/Users/<user>/.venvs/mlx",
   "distributed": {
     "hostfile": "~/.mlx/tb-ring-hostfile.json"
