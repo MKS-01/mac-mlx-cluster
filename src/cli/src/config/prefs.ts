@@ -5,6 +5,13 @@ import { DEFAULT_SPLIT, EMPTY_HISTORY, type SplitHistory, type SplitTarget } fro
 
 export interface Prefs {
   model: string | null;
+  // Which backend last served `model`. A remembered model is only meaningful
+  // together with the runtime that can serve it: Ollama keeps its own store
+  // with its own naming ("gemma4:12b-mlx"), so restoring that name into a
+  // solo/server session sends an unservable id to mlx_lm and the session comes
+  // up broken. Only "ollama" is distinguished — the other modes all resolve
+  // against the same HF cache.
+  backend: "ollama" | null;
   statsView: "combined" | "split" | null;
   splitTarget: SplitTarget;
   splitHistory: SplitHistory;
@@ -13,7 +20,7 @@ export interface Prefs {
 const PREFS_DIR = join(homedir(), ".mlx");
 const PREFS_PATH = join(PREFS_DIR, "cluster-cli-prefs.json");
 
-const DEFAULTS: Prefs = { model: null, statsView: null, splitTarget: DEFAULT_SPLIT, splitHistory: EMPTY_HISTORY };
+const DEFAULTS: Prefs = { model: null, backend: null, statsView: null, splitTarget: DEFAULT_SPLIT, splitHistory: EMPTY_HISTORY };
 
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
@@ -27,6 +34,7 @@ export function loadPrefs(): Prefs {
       const sh = raw.splitHistory;
       return {
         model: typeof raw.model === "string" ? raw.model : null,
+        backend: raw.backend === "ollama" ? "ollama" : null,
         statsView: raw.statsView === "combined" || raw.statsView === "split" ? raw.statsView : null,
         splitTarget:
           st && isFiniteNumber(st.server) && isFiniteNumber(st.peer) && st.server + st.peer === 100

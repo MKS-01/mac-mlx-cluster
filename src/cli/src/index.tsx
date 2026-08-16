@@ -2,7 +2,7 @@ import React from "react";
 import { render } from "ink";
 import { createInterface } from "node:readline/promises";
 import { App } from "./ui/app";
-import { connect, connectPreferPeer, disconnect, disconnectSync, type Session } from "./cluster/cluster";
+import { connect, connectPreferPeer, startOllama, disconnect, disconnectSync, type Session } from "./cluster/cluster";
 import { loadConfig, ConfigError, type ClusterConfig } from "./config/config";
 import { loadPrefs, savePrefs } from "./config/prefs";
 import {
@@ -169,6 +169,20 @@ const { model, localPort } = parseArgs();
 if (localPort !== undefined) config = { ...config, localApiPort: localPort };
 const prefs = loadPrefs();
 
+// Safety net for a remembered model that no HF-cache-backed mode can serve —
+// an Ollama-style name ("gemma4:12b-mlx") left in prefs by a session that
+// predates the `backend` field, or by any path that saved one without it.
+// Without this the session comes up pointed at a model mlx_lm can't resolve
+// and every message fails, which reads like a broken install rather than a
+// stale preference. Only applies when Ollama isn't the restored backend.
+if (prefs.backend !== "ollama" && prefs.model && !/^[\w.-]+\/[\w.-]+$/.test(prefs.model)) {
+  console.log(
+    dim(`remembered model "${prefs.model}" isn't an HF repo id — using ${config.defaultModel}. ` +
+      `(/mode ollama to serve ollama's own models.)`),
+  );
+  prefs.model = null;
+}
+
 // Wear-leveling: decide whether this session should serve from the peer
 // (this Mac) instead of the server node, per splitPolicy.ts's recommendation
 // — then sanity-check that against what the peer is actually doing right
@@ -178,6 +192,10 @@ const prefs = loadPrefs();
 // to take and nothing to probe on the server node — skip straight past the
 // wear-leveling check (which only ever decides *which* Mac serves).
 let usePeer = config.defaultMode === "solo";
+// An Ollama session serves on this Mac through its own daemon, so the
+// wear-leveling turn (which only picks WHICH Mac runs mlx) has nothing to
+// decide — skip its prompt rather than asking a question we'd ignore.
+if (prefs.backend === "ollama" && !model) usePeer = true;
 if (!usePeer && recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
   const pct = actualPct(prefs.splitHistory);
   const splitLine =
@@ -259,9 +277,16 @@ if (!usePeer && recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
 }
 
 try {
-  session = usePeer
-    ? await connectPreferPeer(config, model ?? prefs.model ?? undefined, (line) => console.log(dim(line)))
-    : await connect(config, model ?? prefs.model ?? undefined, (line) => console.log(dim(line)));
+  // An Ollama-served model must come back up under Ollama: its store and
+  // naming ("gemma4:12b-mlx") are its own, so restoring that model into a
+  // solo/server session hands mlx_lm an id it can't resolve. An explicit
+  // --model overrides the remembered pair entirely.
+  session =
+    prefs.backend === "ollama" && !model
+      ? await startOllama(config, prefs.model ?? config.defaultModel, (line) => console.log(dim(line)))
+      : usePeer
+        ? await connectPreferPeer(config, model ?? prefs.model ?? undefined, (line) => console.log(dim(line)))
+        : await connect(config, model ?? prefs.model ?? undefined, (line) => console.log(dim(line)));
 } catch (err) {
   console.error(red(String(err instanceof Error ? err.message : err)));
   process.exit(1);

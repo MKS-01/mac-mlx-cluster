@@ -504,6 +504,7 @@ export function App({
       dispatch({ type: "modelSwitched", session: result.session });
       savePrefs({
         model: result.session.model,
+        backend: backendOf(result.session),
         statsView: stateRef.current.statsView,
         splitTarget: stateRef.current.splitTarget,
         splitHistory: prefs.splitHistory,
@@ -536,6 +537,7 @@ export function App({
     dispatch({ type: "setSplitTarget", target: parsed });
     savePrefs({
       model: stateRef.current.session.model,
+        backend: backendOf(stateRef.current.session),
       statsView: stateRef.current.statsView,
       splitTarget: parsed,
       splitHistory: prefs.splitHistory,
@@ -545,6 +547,10 @@ export function App({
 
   // Plain-language description of how the model is currently being served —
   // used by /mode's notices so the copy stays node-name-agnostic.
+  // Persisted alongside the model so the next session restores the runtime
+  // that can actually serve it (see prefs.ts's `backend`).
+  const backendOf = (s: Session) => (s.mode === "ollama" ? ("ollama" as const) : null);
+
   const describeMode = (s: Session): string => {
     if (s.mode === "shard") return "cluster — sharded across all nodes";
     if (s.mode === "cluster") return `server — ${config.server.id} serves the whole model`;
@@ -579,6 +585,7 @@ export function App({
       dispatch({ type: "modelSwitched", session: merged });
       savePrefs({
         model: merged.model,
+        backend: backendOf(merged),
         statsView: stateRef.current.statsView,
         splitTarget: stateRef.current.splitTarget,
         splitHistory: prefs.splitHistory,
@@ -697,6 +704,7 @@ export function App({
         dispatch({ type: "setStatsView", view: next });
         savePrefs({
           model: state.session.model,
+        backend: backendOf(state.session),
           statsView: next,
           splitTarget: state.splitTarget,
           splitHistory: prefs.splitHistory,
