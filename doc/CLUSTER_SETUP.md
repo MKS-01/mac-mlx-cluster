@@ -258,6 +258,15 @@ each rank held 10.9 GB of weights — half the model per Mac — generating at
 the mechanism; for real use it belongs on a single node as a server (§8), where
 it runs 3–4× faster. Shard only what one Mac can't hold.
 
+For single-Mac numbers to compare against — measured tok/s per model, and
+why they're set by memory bandwidth rather than by anything tunable — see
+"Measured throughput" in [`ARCHITECTURE.md`](ARCHITECTURE.md). The short
+version: tok/s ≈ effective bandwidth (~300 GB/s on the M5 Pro) ÷ weight
+size, so a large dense model is slow for reasons no amount of clustering
+fixes. Not every architecture can shard at all — the CLI's default model
+(`Muse-Glimmer-30B-4bit`) implements no `shard()` and runs under
+`mlx_vlm.server`, so it is single-Mac only.
+
 ### 8. Dedicated model server (LaunchAgent)
 
 If the model fits on one Mac, don't shard — run it whole on the "server" Mac

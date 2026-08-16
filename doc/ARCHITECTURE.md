@@ -63,6 +63,40 @@ count, and forcing an uneven split via multiple ranks per GPU caused Metal
 timeouts on the M1 in testing. This is why the CLI's wear-leveling feature
 (below) balances *which Mac serves whole*, not *how the model is split*.
 
+## Measured throughput (m5, 2026-08-16)
+
+Generation on a Mac is **memory-bandwidth bound**, not compute bound: a
+dense model reads essentially all of its weights per token, so tok/s falls
+out of `effective bandwidth ÷ weight size`. Measured on the m5 (M5 Pro,
+48 GB), all 4-bit, single Mac, text-only:
+
+| Model | Weights | Server | tok/s | × implied bandwidth |
+|---|---|---|---|---|
+| Qwen2.5-VL-7B-Instruct | 5.3 GB | `mlx_vlm` | 65.1 | ~345 GB/s |
+| Qwen3.5-9B | 5.6 GB | `mlx_lm` | 52.3 | ~293 GB/s |
+| **Muse-Glimmer-30B** (default) | 19.3 GB | `mlx_vlm` | 17.1 | ~330 GB/s |
+
+The right-hand column is the diagnostic: every model lands in the same
+~290–345 GB/s band, which is what "saturating memory bandwidth" looks
+like. A model sitting well *below* the band while smaller ones sit at the
+top of it is the signal that something is actually wrong (usually paging
+past the wired-memory ceiling — see `mlxctl meminfo` above). A big dense
+model being slow, on its own, is not.
+
+Consequences worth internalizing before chasing a slowdown:
+
+- **Sharding cannot fix this.** Pattern B aggregates memory, not
+  bandwidth, and adds a per-layer all-reduce over Thunderbolt 4 (~5 GB/s)
+  against local memory's ~300 GB/s — roughly 60× slower — while running at
+  the pace of the slowest rank.
+- **MoE beats dense at equal size.** `Qwen3.6-35B-A3B` is nominally
+  *larger* than Muse but activates ~3B params/token, so it reads a
+  fraction of the weights per token. That's why it's the `agentModel`
+  default: an agent loop is many short tool rounds, where per-token speed
+  dominates.
+- To go faster, change the model's shape (smaller, or MoE) — not the
+  topology.
+
 ## `src/tools/mlxctl` — model cache manager
 
 Standalone Python script (no deps beyond `huggingface_hub`), symlinked into
@@ -161,10 +195,10 @@ Two config files, both under `~/.mlx/` (outside the repo):
 `ClusterConfig` has two `NodeConfig`-shaped entries — `server` (the
 always-on Mac: adds `apiPort`, `plistPath`, `serviceLabel` on top of
 `id`/`ip`/`sshUser`/`macmonPort`) and `peer` (stats-only, never SSH'd for
-control) — plus `defaultModel`, `agentModel` (the repo id `/agent` sends
-with each turn — independent of whatever chat model the session is
-using), `localApiPort` (for spawning `mlx_lm.server` locally in
-fallback/solo mode), `venvPath`, and `distributed.hostfile` (the
+control) — plus `defaultMode` (`"server"` | `"solo"`, see below),
+`defaultModel`, `agentModel` (the repo id `/agent` prefers — subject to
+`agentModelFor()`, below), `localApiPort` (for spawning the model server
+locally in fallback/solo mode), `venvPath`, and `distributed.hostfile` (the
 `mlx.launch` hostfile path; rank 0's bind IP is read from that file's
 first entry at launch time rather than duplicated in config).
 `loadConfig()` merges the on-disk JSON over `DEFAULT_CONFIG` key
@@ -192,11 +226,72 @@ write errors) since prefs are a nicety, not load-bearing state.
 
 On launch: HTTP-check the m1 → if down, SSH in and bootstrap/kickstart its
 LaunchAgent → if that also fails (bridge down, m1 asleep), spawn
-`mlx_lm.server` locally on whichever Mac the CLI is actually running on
+a model server locally (`mlx_lm.server` or `mlx_vlm.server`, per
+"Server binary selection" below) on whichever Mac the CLI is running on
 ("local mode"). Tracks whether *this session* started the m1's server
 (`ClusterOrigin: "started"` vs `"attached"`) so quit only tears down infra
 it created — Pattern A's server is meant to stay always-on shared
 infrastructure that an ordinary session never assumes ownership of.
+
+### Startup mode (`defaultMode`)
+
+`config.defaultMode` decides what a session does *before* any of the above
+runs:
+
+- **`"server"`** (shipped default) — the flow just described: probe the m1,
+  fall back to this Mac only if it's unreachable.
+- **`"solo"`** — serve on this Mac from the start, skipping the m1 probe
+  and the wear-leveling turn check entirely (that check only decides
+  *which* Mac serves, which is already answered). Right setting for a
+  one-Mac setup, or when the other Mac is usually off/asleep/unplugged.
+
+The distinction is visible in the status panel: a deliberate solo session
+reads `solo · this Mac`, while an emergency fallback reads
+`solo · this Mac (server unreachable)` (`LocalOrigin: "takeover"` vs
+`"fallback"`). Under `solo` the startup memory-fit check also stops
+redirecting to the other node — it warns about a tight fit but honors the
+pin, since silently serving from the m1 would defeat the point.
+
+### Server binary selection (`src/net/server.ts:pickServerBinary`)
+
+A local session spawns one of two servers from the venv, chosen per model:
+
+- **`mlx_lm.server`** — text models, and any multimodal model `mlx_lm`
+  itself implements.
+- **`mlx_vlm.server`** — vision-language models `mlx_lm` has no
+  implementation for (the default `Muse-Glimmer-30B-4bit` is one).
+  Requires `pip install -U mlx-vlm` in the venv.
+
+The choice is keyed on **whether the venv's `mlx_lm` ships a module for the
+repo's `model_type`** (`mlx_lm/models/<model_type>.py`), read from the
+cached snapshot's `config.json` — deliberately *not* on the config having a
+`vision_config`. Several repos (Qwen3.5, Qwen3.8) are multimodal *and*
+implemented in both packages; those keep using `mlx_lm` as they always
+have. Only what `mlx_lm` genuinely can't load falls through to `mlx_vlm`.
+An uncached or unreadable config defaults to `mlx_lm`.
+
+This matters because the failure it prevents is a confusing one: `mlx_lm`
+doesn't reject an unsupported architecture at startup, it rejects it at the
+*lazy load* triggered by the first request. So `/v1/models` answers, the
+health check passes, the session comes up looking healthy — and only the
+first chat message fails with `Model type <x> not supported`, which reads
+like a broken connection rather than a wrong binary.
+
+Two consequences of routing this way:
+
+- A dual-implemented multimodal model (Qwen3.5/3.8) runs under `mlx_lm`,
+  which means **text only** — no image input, despite the model supporting
+  it. Vision there would need forcing onto `mlx_vlm`.
+- `mlx_vlm.server` validates request bodies with pydantic and **requires
+  the `model` field**, where `mlx_lm.server` falls back to whatever it was
+  launched with. Omitting it returns `422 Field required`, which is why
+  `streamChat` always sends it (see "Chat streaming").
+
+Sharding (`/mode cluster`) launches `mlx_lm.server` specifically, and
+tensor parallelism additionally needs the architecture to implement
+`shard()`. `muse_glimmer` implements neither, so **the default model
+cannot be sharded** — it's a single-Mac model by construction. It doesn't
+need to be: 19.3 GB fits one Mac comfortably.
 
 ### Wear-leveling split (`src/cluster/splitPolicy.ts`, `src/cluster/cluster.ts:connectPreferPeer`)
 
@@ -294,13 +389,55 @@ and respawns the CLI's own process.
 
 ### Chat streaming (`src/chat/chat.ts`)
 
-Talks to `mlx_lm.server`'s OpenAI-compatible SSE endpoint. Reasoning models
+Talks to the serving process's OpenAI-compatible SSE endpoint — either
+`mlx_lm.server` or `mlx_vlm.server` (see "Server binary selection"); the
+request always carries an explicit `model`, since the latter rejects a body
+without one. Reasoning models
 (Qwen3.6's thinking mode) stream internal reasoning under a separate
 `delta.reasoning` field from the actual `delta.content` — both count against
 `max_tokens` server-side, so a verbose thinking pass can exhaust the whole
 budget before any real content is emitted. The client detects this
 (`finish_reason: "length"` with zero content chunks) and surfaces a clear
 error instead of silently rendering an empty reply.
+
+**Token accounting.** Requests set `stream_options: {include_usage: true}`,
+so the server appends a final chunk (`choices: []`, `usage: {...}`) with
+its own counts — these are the server's numbers, never deltas counted
+client-side. `streamChat` reports them through an `onUsage` callback as a
+`ChatUsage`, and `app.tsx` renders `formatUsage()` as one dim
+display-only `action` row under the reply:
+
+```
+↑ 82 in · ↓ 422 out · 15 cached · 17.1 tok/s · 25.1s
+```
+
+Reusing the `action` role (rather than adding a transcript role) means the
+line inherits existing dim styling, flows through the same height-budget
+windowing with no new line-budget constant, and — because `runChat` filters
+the display history down to `user`/`assistant` — can never leak back into
+the model's context.
+
+Field sources, which differ per server and are easy to misread:
+
+- `in`/`out` — `usage.prompt_tokens` / `usage.completion_tokens`. **`out`
+  includes hidden reasoning tokens**, so on a thinking model it can far
+  exceed the visible text. (Verified: a 422-token reply tokenized to 419
+  visible tokens + end-of-message tokens.)
+- `cached` — `prompt_tokens_details.cached_tokens`, shown only when the KV
+  cache actually served part of the prompt.
+- `tok/s` — `mlx_vlm` reports `timings.predicted_per_second` directly and
+  that's used as-is; `mlx_lm` sends no timings, so it's computed as
+  `completion_tokens ÷ (first token → stream close)`. **Generation is
+  clocked from the first delta of *any* kind**, reasoning included —
+  timing only content deltas while dividing by a token count that includes
+  reasoning inflated a thinking model's rate to ~1400 tok/s during
+  development.
+- elapsed — client wall clock, request sent → stream closed, so unlike
+  `tok/s` it includes prompt processing. Expect `out ÷ elapsed` to run
+  slightly *below* the reported `tok/s`; that gap is prompt time.
+
+A server that ignores `include_usage` simply produces no usage line — the
+callback is best-effort, not guaranteed.
 
 ### Stats polling (`src/net/macmon.ts`)
 
@@ -379,6 +516,25 @@ filters the display history down to `user`/`assistant` turns before sending.
 
 The agent needs nothing cluster-specific: it uses `session.base`, so it works
 identically in solo mode on a single Mac.
+
+**Which model the agent runs on** is decided by `agentModelFor()`
+(`src/cluster/cluster.ts`), not by `config.agentModel` alone:
+
+| Session mode | Agent model | Why |
+|---|---|---|
+| `cluster` | `config.agentModel` | the m1's LaunchAgent loads on demand from the shared cache |
+| `local` / solo | the session's own model | one spawned process, one model |
+| `shard` | the session's own model | the `mlx.launch` ring is built around one model at launch |
+
+The failure this avoids isn't an error — it's silent thrash. Asking a
+single-model process for a *different* repo doesn't get refused: both
+servers evict what's loaded and load the requested model instead
+(`mlx_vlm`'s `get_cached_model` clears its cache group per model). So
+`/agent` would unload the chat model, then the next chat message would
+reload it — a multi-GB round trip each way. The tradeoff in solo is that
+the agent runs on whatever is loaded, which for a dense default like Muse
+is slower per tool round than the MoE `agentModel` would be. The agent
+status bar shows the model actually in use.
 
 ## Repo layout
 

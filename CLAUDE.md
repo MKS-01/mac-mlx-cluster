@@ -15,7 +15,8 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 
 ## Environment (not in this repo)
 
-- **MLX lives in a venv at `~/.venvs/mlx`** (Python 3.12), NOT in this directory. All `mlx_lm.*`, `hf`, and `mlxctl` commands come from `~/.venvs/mlx/bin`, which is on PATH via `~/.zshenv`. In already-open shells run `source ~/.zshenv` first.
+- **MLX lives in a venv at `~/.venvs/mlx`** (Python 3.12), NOT in this directory. All `mlx_lm.*`, `mlx_vlm.*`, `hf`, and `mlxctl` commands come from `~/.venvs/mlx/bin`, which is on PATH via `~/.zshenv`. In already-open shells run `source ~/.zshenv` first.
+- **Both `mlx-lm` and `mlx-vlm` are installed** in that venv — `mlx-vlm` is required by the default model (see Model selection). As of 2026-08-16 the M5 Pro is on mlx 0.32.0 / transformers 5.15.0 while the M1 Pro is still on mlx 0.31.2; **sync them before any Pattern B sharded launch** (`mlx-update` skill), since ranks must match.
 - **Models are cached in `~/.cache/huggingface/hub`**, shared by all tools. They are NOT stored in this repo.
 
 ## `mlxctl` — the model manager
@@ -40,13 +41,19 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 
 Two Macs: **M1 Pro 32 GB (Thunderbolt 4)** + **M5 Pro 48 GB**.
 - **The cluster is set up and working.** `doc/CLUSTER_SETUP.md` is the verified, authoritative walkthrough (IPs, hostfile location, launch commands, gotchas).
-- **Pattern A (default, running):** the M1 Pro serves a model via `mlx_lm.server` as a LaunchAgent; dev on the M5 Pro via the API. No clustering.
+- **Pattern A:** the M1 Pro serves a model via `mlx_lm.server` as a LaunchAgent; dev on the M5 Pro via the API. No clustering. This is the repo's shipped default, but **the CLI on this M5 currently runs `defaultMode: "solo"`** (serves locally, doesn't probe the M1) — see the `src/cli/` section.
 - **Pattern B:** shard across both Macs over Thunderbolt only for models too big for one Mac (>~38 GB). Sharding mode is dictated by the model: tensor parallel is the default (verified working); `--pipeline` only for architectures that implement it (Qwen3.6 MoE does not).
 - Sharding aggregates **memory, not speed** — clustering a model that fits on one Mac makes it slower. RDMA/JACCL speedups need Thunderbolt 5, which the M1 Pro lacks.
 
 ## Model selection
 
-Prefer the newest Qwen (3.6 > 3.5). For 48 GB: 4bit ≈ 15 GB, 6bit ≈ 21 GB, 8bit ≈ 28 GB; `bf16` won't fit. `-DWQ` 4-bit gives better quality than plain 4-bit at the same size. MoE models (`-A3B`) run faster than dense models of similar total size.
+**The default chat model is `mlx-community/Muse-Glimmer-30B-4bit`** (30B dense, multimodal, 19.3 GB, 131k context — Apache 2.0, built for tool use and long agent tasks). It is **not** an `mlx_lm` model: `mlx_lm` has no `muse_glimmer` architecture and neither does upstream main, so it runs under **`mlx_vlm.server`** and needs `mlx-vlm` installed in the venv (`~/.venvs/mlx/bin/pip install -U mlx-vlm`). The CLI routes to the right binary automatically (`pickServerBinary`, see `doc/ARCHITECTURE.md`) — but `mlx_lm.chat`/`mlxctl run` will **not** load it.
+
+Because `muse_glimmer` implements no `shard()`, the default model can't be tensor-parallel sharded — it's single-Mac by construction, which is fine at 19.3 GB.
+
+General guidance: prefer the newest Qwen (3.8 > 3.6 > 3.5). For 48 GB: 4bit ≈ 15 GB, 6bit ≈ 21 GB, 8bit ≈ 28 GB; `bf16` won't fit. `-DWQ` 4-bit gives better quality than plain 4-bit at the same size. MoE models (`-A3B`) run faster than dense models of similar total size.
+
+**Speed is memory-bandwidth bound, not compute bound** — measured on the M5 Pro: 7B ≈ 65 tok/s, 9B ≈ 52 tok/s, Muse-30B ≈ 17 tok/s, all landing at ~290–345 GB/s effective bandwidth. A big dense model being slow is physics, not misconfiguration; see `doc/ARCHITECTURE.md`'s "Measured throughput" for the table and how to tell real problems from bandwidth limits. To go faster, pick a smaller or MoE model — not sharding.
 
 ## `src/cli/` — mlx-cluster (terminal chat client)
 
@@ -57,5 +64,7 @@ Standalone Bun/TypeScript/Ink project living inside this repo — its own `packa
 - `bun run setup` — runs `install.sh`: `bun install` + build + installs to `~/.local/bin` (override with `MLX_CLI_BIN_DIR`).
 - No lint/test scripts exist.
 - Config at `~/.mlx/cluster-cli.json` (copy from `src/cli/config.example.json`). **Missing file silently falls back to hardcoded defaults** (`10.0.0.1`/`10.0.0.2`) instead of failing — a config typo can look like it worked while talking to the wrong IPs. Malformed JSON does throw (`ConfigError`).
+- `defaultMode` (`"server"` | `"solo"`) picks the startup mode. **This machine's config is `"solo"`**: serve on this Mac immediately, skipping the M1 probe and the wear-leveling check. `"server"` (the shipped example default) is Pattern A with local fallback. A deliberate solo session shows `solo · this Mac`; the emergency fallback shows `solo · this Mac (server unreachable)`.
+- Each reply is followed by a dim token line (`↑ in · ↓ out · cached · tok/s · elapsed`) from the server's own `usage` chunk. **`↓ out` counts hidden reasoning tokens**, so it can exceed the visible text on a thinking model.
 - Prefs/history at `~/.mlx/cluster-cli-prefs.json` (last model, stats view, wear-leveling split target + accumulated time) — written by the CLI itself, never hand-edit while a session is running (it gets overwritten on quit).
 - Depends on this repo's environment: `venvPath` (→ `~/.venvs/mlx`) for local-fallback mode, and the `doc/CLUSTER_SETUP.md` LaunchAgent (`plistPath`/`serviceLabel`) for cluster mode.

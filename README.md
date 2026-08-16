@@ -40,6 +40,7 @@ failures included — that's where the gotchas sections come from.
    └──────────────────────┘                          └──────────────────────┘
 
    solo     one Mac serves the whole model — the other stays 100% free
+            (set defaultMode: "solo" to start here without probing the server)
    server   the M1 serves over the bridge — chat from anywhere on it
    cluster  one model tensor-sharded across BOTH Macs (/mode cluster)
             → 80 GB of combined unified memory for models neither can hold alone
@@ -68,6 +69,13 @@ failures included — that's where the gotchas sections come from.
   - `/stats` and `/split 60/40` — live per-node CPU/GPU/RAM/temp gauges,
     and wear-leveling that balances serving time so one Mac doesn't
     quietly take all the GPU wear.
+  - **Token accounting on every reply** — `↑ 82 in · ↓ 422 out · 17.1 tok/s
+    · 25.1s`, taken from the server's own usage counters rather than
+    estimated. Reasoning tokens are counted too, so a thinking model's real
+    cost is visible instead of hidden.
+  - **Text *and* vision models** — picks `mlx_lm` or `mlx_vlm` per model
+    automatically, so VLM-only architectures just work instead of failing
+    on the first message.
 - **`mlxctl`** — the model-cache manager `hf` should have shipped with: true
   on-disk sizes, per-shard download progress, stuck-download rescue, a
   will-it-fit verdict (`mlxctl meminfo`), and one-command server control
@@ -81,6 +89,33 @@ Only the cluster pieces need two Macs — everything else works standalone on a
 single Apple Silicon machine. And zero cloud, ever: every request stays on
 the Thunderbolt bridge or localhost.
 
+## What to expect
+
+Generation on Apple Silicon is **memory-bandwidth bound, not compute
+bound**: a dense model reads essentially all its weights per token, so
+speed ≈ bandwidth ÷ weight size. Measured on an M5 Pro (48 GB), 4-bit,
+single Mac:
+
+| Model | Weights | tok/s |
+|---|---|---|
+| Qwen2.5-VL-7B | 5.3 GB | 65 |
+| Qwen3.5-9B | 5.6 GB | 52 |
+| Muse-Glimmer-30B (default) | 19.3 GB | 17 |
+
+All three land at ~290–345 GB/s of effective bandwidth — that consistency
+is the point. A large dense model running slowly is physics, not a
+misconfiguration, and **clustering won't fix it**: sharding pools *memory*,
+not bandwidth, and adds a per-layer round trip over a link ~60× slower than
+local memory. Want more speed? Pick a smaller model, or an MoE (which reads
+only a fraction of its weights per token). Want a model that fits in
+neither Mac alone? *That's* what cluster mode is for.
+
+The default chat model is
+[`Muse-Glimmer-30B-4bit`](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit)
+— 30B dense, multimodal, Apache 2.0, built for tool use and long agent
+tasks. It runs under `mlx_vlm`, so `pip install -U mlx-vlm` if you want it;
+any `mlx-lm` text model works too and the CLI routes accordingly.
+
 ## Quick start
 
 > Requires an Apple Silicon Mac and Python 3.12+. A second Mac + a Thunderbolt
@@ -92,7 +127,7 @@ git clone https://github.com/MKS-01/mac-mlx-cluster.git && cd mac-mlx-cluster
 
 # 2. MLX venv — where the models and servers run
 python3.12 -m venv ~/.venvs/mlx
-~/.venvs/mlx/bin/pip install mlx-lm
+~/.venvs/mlx/bin/pip install mlx-lm          # add mlx-vlm too for vision models
 export PATH="$HOME/.venvs/mlx/bin:$PATH"     # add to ~/.zshenv to persist
 
 # 3. First chat — downloads ~5 GB of weights on first run, then loads from cache
