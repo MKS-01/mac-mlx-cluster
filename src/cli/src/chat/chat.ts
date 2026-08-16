@@ -107,6 +107,40 @@ export async function agentTurn(opts: {
   };
 }
 
+/**
+ * Token accounting for one completed exchange. Both servers report this in a
+ * final SSE chunk when the request asks for it via
+ * `stream_options.include_usage` (verified on mlx_lm.server 0.31.3 and
+ * mlx_vlm.server 0.6.13) — so these are the server's own counts, not an
+ * estimate from counting deltas.
+ */
+export interface ChatUsage {
+  promptTokens: number;
+  completionTokens: number;
+  /** prompt tokens served from the KV cache, when the server reports it */
+  cachedTokens: number | null;
+  /** generation speed — mlx_vlm reports it directly; otherwise measured here */
+  tokensPerSecond: number | null;
+  /** wall time from request sent to stream close */
+  elapsedMs: number;
+}
+
+/**
+ * One-line transcript summary of a finished exchange, e.g.
+ * `↑ 412 in · ↓ 128 out · 23.4 tok/s · 5.5s`. Rendered as an "action" row —
+ * display-only, never sent back to the server (see ChatMessage's role doc).
+ */
+export function formatUsage(u: ChatUsage): string {
+  const parts = [
+    `↑ ${u.promptTokens} in`,
+    `↓ ${u.completionTokens} out`,
+  ];
+  if (u.cachedTokens) parts.push(`${u.cachedTokens} cached`);
+  if (u.tokensPerSecond !== null) parts.push(`${u.tokensPerSecond.toFixed(1)} tok/s`);
+  parts.push(`${(u.elapsedMs / 1000).toFixed(1)}s`);
+  return parts.join(" · ");
+}
+
 export class ChatStreamError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
     super(message);
@@ -116,9 +150,22 @@ export class ChatStreamError extends Error {
 export interface StreamChatOptions {
   base: string;
   messages: ChatMessage[];
+  /**
+   * Repo id to generate with. Optional only for back-compat with
+   * `mlx_lm.server`, which falls back to whatever model it was started with;
+   * `mlx_vlm.server` validates the body with pydantic and rejects a missing
+   * `model` with a 422, so always pass it.
+   */
+  model?: string;
   maxTokens?: number;
   signal?: AbortSignal;
   onToken: (chunk: string) => void;
+  /**
+   * Called once with the server's token counts when the stream ends, before
+   * this resolves. Skipped entirely if the server sends no usage chunk, so
+   * callers must treat it as best-effort rather than guaranteed.
+   */
+  onUsage?: (usage: ChatUsage) => void;
   /** per-read idle timeout in ms — guards against a hung connection that never closes */
   idleTimeoutMs?: number;
 }
@@ -131,14 +178,24 @@ export interface StreamChatOptions {
  * rather than crashing.
  */
 export async function streamChat(opts: StreamChatOptions): Promise<string> {
-  const { base, messages, maxTokens = 2048, signal, onToken, idleTimeoutMs = 60_000 } = opts;
+  const { base, messages, model, maxTokens = 2048, signal, onToken, onUsage, idleTimeoutMs = 60_000 } = opts;
+  const startedAt = Date.now();
 
   let res: Response;
   try {
     res = await fetch(`${base}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, max_tokens: maxTokens, stream: true }),
+      body: JSON.stringify({
+        ...(model ? { model } : {}),
+        messages,
+        max_tokens: maxTokens,
+        stream: true,
+        // Asks for the trailing usage chunk. Servers that don't know the
+        // option ignore it (it's inert extra JSON), so this stays safe
+        // against an older mlx_lm.server — we just get no usage line.
+        stream_options: { include_usage: true },
+      }),
       signal,
     });
   } catch (err) {
@@ -171,6 +228,11 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
   // silently empty reply.
   let sawReasoning = false;
   let finishReason: string | null = null;
+  // Final usage chunk (choices: [], usage: {...}) and mlx_vlm's extra
+  // `timings` block, both arriving after the last content delta.
+  let rawUsage: any = null;
+  let serverTps: number | null = null;
+  let firstTokenAt: number | null = null;
 
   const readWithTimeout = async () => {
     const to = setTimeout(() => reader.cancel("idle timeout").catch(() => {}), idleTimeoutMs);
@@ -208,9 +270,20 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
         } catch {
           continue; // keep-alive or partial fragment — ignore
         }
+        if (parsed?.usage) rawUsage = parsed.usage;
+        if (typeof parsed?.timings?.predicted_per_second === "number") {
+          serverTps = parsed.timings.predicted_per_second;
+        }
         const choice = parsed?.choices?.[0];
         if (choice?.finish_reason) finishReason = choice.finish_reason;
         if (choice?.delta?.reasoning) sawReasoning = true;
+        // Generation starts at the first token of ANY kind. Timing only the
+        // content deltas while dividing by completion_tokens (which counts
+        // reasoning too) inflates tok/s wildly on a thinking model — a long
+        // think followed by a short answer looked like 1400 tok/s.
+        if (firstTokenAt === null && (choice?.delta?.reasoning || choice?.delta?.content)) {
+          firstTokenAt = Date.now();
+        }
         const delta: string | undefined = choice?.delta?.content;
         if (delta) {
           pieces.push(delta);
@@ -224,6 +297,20 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
     } catch {
       // already released via cancel() above
     }
+  }
+
+  // Reported before the empty-reply checks below so a budget-exhausted turn
+  // still accounts for the tokens it actually burned.
+  if (onUsage && rawUsage && typeof rawUsage.completion_tokens === "number") {
+    const completionTokens = rawUsage.completion_tokens;
+    const genMs = firstTokenAt === null ? 0 : Date.now() - firstTokenAt;
+    onUsage({
+      promptTokens: rawUsage.prompt_tokens ?? 0,
+      completionTokens,
+      cachedTokens: rawUsage.prompt_tokens_details?.cached_tokens ?? null,
+      tokensPerSecond: serverTps ?? (genMs > 0 ? (completionTokens / genMs) * 1000 : null),
+      elapsedMs: Date.now() - startedAt,
+    });
   }
 
   const reply = pieces.join("");

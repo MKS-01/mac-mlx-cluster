@@ -174,8 +174,11 @@ const prefs = loadPrefs();
 // — then sanity-check that against what the peer is actually doing right
 // now before acting on it, so we never steal a Mac that's mid-task for
 // something unrelated, and don't bother asking when the answer is obvious.
-let usePeer = false;
-if (recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
+// config.defaultMode === "solo" pins serving to this Mac, so there's no turn
+// to take and nothing to probe on the server node — skip straight past the
+// wear-leveling check (which only ever decides *which* Mac serves).
+let usePeer = config.defaultMode === "solo";
+if (!usePeer && recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
   const pct = actualPct(prefs.splitHistory);
   const splitLine =
     `wear-leveling: actual split ${pct.server}/${pct.peer} vs target ${formatSplit(prefs.splitTarget)} ` +
@@ -226,7 +229,16 @@ if (recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
     if (intendedRam !== null && fitVerdict(sizeGB, intendedRam) === "exceeds") {
       const intended = usePeer ? config.peer : config.server;
       const other = usePeer ? config.server : config.peer;
-      if (otherRam !== null && fitVerdict(sizeGB, otherRam) !== "exceeds") {
+      // Solo is a deliberate pin to this Mac — warn about a tight fit, but
+      // never redirect to the other node behind the user's back.
+      if (config.defaultMode === "solo") {
+        console.log(
+          dim(
+            `${startupModel} (${sizeGB.toFixed(1)} GB) likely exceeds ${intended.id}'s wired-memory ` +
+              `ceiling — serving here anyway (defaultMode: solo).`,
+          ),
+        );
+      } else if (otherRam !== null && fitVerdict(sizeGB, otherRam) !== "exceeds") {
         console.log(
           dim(
             `${startupModel} (${sizeGB.toFixed(1)} GB) likely exceeds ${intended.id}'s wired-memory ` +

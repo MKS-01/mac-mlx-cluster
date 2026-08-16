@@ -15,11 +15,22 @@ export interface ServerNodeConfig extends NodeConfig {
   serviceLabel: string; // e.g. com.mlx-server
 }
 
+// How a session starts when nothing overrides it:
+//   "server" — Pattern A: attach to (or bootstrap) the server node's
+//              LaunchAgent, falling back to this Mac only if it's unreachable.
+//   "solo"   — serve on this Mac from the start, without probing the server
+//              node first. Right default for a one-Mac setup, or when the
+//              other Mac is usually off/asleep/unplugged.
+export type DefaultMode = "server" | "solo";
+
 export interface ClusterConfig {
   // The Mac that runs mlx_lm.server as an always-on LaunchAgent (Pattern A).
   server: ServerNodeConfig;
   // The other Mac — used only for its stats (macmon), never SSH'd for control.
   peer: NodeConfig;
+  // Startup mode. "solo" also skips the wear-leveling turn check, which only
+  // decides *which* Mac serves — already answered when solo is pinned.
+  defaultMode: DefaultMode;
   defaultModel: string;
   // Model the /agent coding loop uses, independent of the chat model — sent in
   // each agent request so mlx_lm.server loads it from the shared cache. A MoE
@@ -54,6 +65,7 @@ export const DEFAULT_CONFIG: ClusterConfig = {
     sshUser: process.env.USER ?? "user",
     macmonPort: 9090,
   },
+  defaultMode: "server",
   defaultModel: "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   agentModel: "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   localApiPort: 8080,
@@ -94,6 +106,11 @@ function validateConfig(c: ClusterConfig): ClusterConfig {
   assertMatches(c.server.plistPath, PATH_RE, "server.plistPath");
   assertMatches(c.server.serviceLabel, LABEL_RE, "server.serviceLabel");
   assertMatches(c.agentModel, REPO_RE, "agentModel");
+  if (c.defaultMode !== "server" && c.defaultMode !== "solo") {
+    throw new ConfigError(
+      `${CONFIG_PATH}: "defaultMode" (${JSON.stringify(c.defaultMode)}) must be "server" or "solo"`,
+    );
+  }
   return c;
 }
 
@@ -121,6 +138,7 @@ export function loadConfig(): ClusterConfig {
   return validateConfig({
     server: { ...DEFAULT_CONFIG.server, ...r.server },
     peer: { ...DEFAULT_CONFIG.peer, ...r.peer },
+    defaultMode: r.defaultMode ?? DEFAULT_CONFIG.defaultMode,
     defaultModel: r.defaultModel ?? DEFAULT_CONFIG.defaultModel,
     agentModel: r.agentModel ?? DEFAULT_CONFIG.agentModel,
     localApiPort: r.localApiPort ?? DEFAULT_CONFIG.localApiPort,

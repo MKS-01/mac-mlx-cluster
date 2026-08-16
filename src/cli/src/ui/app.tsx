@@ -3,9 +3,9 @@ import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { startSolo, startServer, startCluster, stopCurrentSession, type Session } from "../cluster/cluster";
+import { startSolo, startServer, startCluster, stopCurrentSession, agentModelFor, type Session } from "../cluster/cluster";
 import type { ClusterConfig } from "../config/config";
-import { streamChat, ChatStreamError, type ChatMessage } from "../chat/chat";
+import { streamChat, formatUsage, ChatStreamError, type ChatMessage } from "../chat/chat";
 import { runAgent, AgentAborted } from "../agent/agentLoop";
 import { switchModel } from "../models/switchModel";
 import { listServerModels, resolveModel, type CachedModel } from "../models/models";
@@ -296,14 +296,21 @@ export function App({
     // served it — idle time waiting for the next message doesn't count.
     const startedAt = Date.now();
     try {
+      let usageLine: string | null = null;
       const reply = await streamChat({
         base: state.session.base,
         messages,
+        model: state.session.model,
         signal: controller.signal,
         onToken: (chunk) => dispatch({ type: "token", chunk }),
+        onUsage: (u) => {
+          usageLine = formatUsage(u);
+        },
       });
       onActiveTime?.(Date.now() - startedAt);
       dispatch({ type: "done", reply });
+      // After the reply lands, so it reads as a footnote to that turn.
+      if (usageLine) dispatch({ type: "pushMessage", message: { role: "action", content: usageLine } });
     } catch (err) {
       onActiveTime?.(Date.now() - startedAt);
       if (err instanceof ChatStreamError && err.message === "cancelled") {
@@ -340,7 +347,7 @@ export function App({
     try {
       const { messages } = await runAgent({
         base: stateRef.current.session.base,
-        model: config.agentModel,
+        model: agentModelFor(config, stateRef.current.session),
         root,
         task: text,
         history: agentHistoryRef.current,
@@ -831,7 +838,7 @@ export function App({
             </Text>
           ) : (
             <Text color={DIM} wrap="truncate-end">
-              agent · {config.agentModel.split("/").pop()} · {state.agentRoot} · /agent off to exit
+              agent · {agentModelFor(config, state.session).split("/").pop()} · {state.agentRoot} · /agent off to exit
             </Text>
           )}
         </Box>

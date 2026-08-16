@@ -53,6 +53,26 @@ export interface Session {
 }
 
 /**
+ * Which model the /agent loop should run on for a given session.
+ *
+ * config.agentModel (a MoE, chosen for cheap tool rounds) is only reachable
+ * when the serving process can load models on demand from the shared cache —
+ * true of the server node's LaunchAgent in cluster mode. A local session is
+ * a single process this CLI spawned for one specific model, and asking it
+ * for another one evicts the loaded model and reloads from scratch
+ * (mlx_vlm.server clears its cache group per model; mlx_lm.server reloads
+ * too), so /agent would swap the chat model out and the next chat message
+ * would swap it back — a multi-GB round trip per switch. Solo therefore runs
+ * the agent on whatever is already loaded.
+ *
+ * Shard mode is likewise pinned: the mlx.launch ring is built around one
+ * model at launch, and rank 0 can't reload it per request.
+ */
+export function agentModelFor(config: ClusterConfig, session: Session): string {
+  return session.mode === "cluster" ? config.agentModel : session.model;
+}
+
+/**
  * Local serving with attach-first semantics: if something healthy is already
  * answering on the local port — typically an mlx_lm.server another client or
  * a previous session left running — use it instead of failing to start a

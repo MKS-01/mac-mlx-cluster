@@ -14,6 +14,7 @@
     "sshUser": "<user>",
     "macmonPort": 9090
   },
+  "defaultMode": "server",
   "defaultModel": "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   "agentModel": "mlx-community/Qwen3.6-35B-A3B-4bit-DWQ",
   "localApiPort": 8080,
