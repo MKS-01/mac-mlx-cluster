@@ -23,7 +23,7 @@ This is a docs + tooling repo for Mac cluster setup and experimentation with MLX
 
 `mlxctl` (`src/tools/mlxctl` in this repo, symlinked into `~/.venvs/mlx/bin`) manages cached models with incomplete-aware status. Edit the file here; the symlink picks up changes.
 
-- `mlxctl list` — all models with true size + status (counts `.incomplete`, unlike `hf cache list`)
+- `mlxctl list` — all models with true size + status (counts `.incomplete`, unlike `hf cache list`), then a second section for models in **Ollama's** store (read from its manifests, so it works with the daemon stopped). Ollama models are servable only via `mlx-cluster`'s `/mode ollama` — every other `mlxctl` command is HF-cache-only.
 - `mlxctl status <repo>` — per-shard download progress
 - `mlxctl download <repo>` — refuses to start if one is already running
 - `mlxctl remove <repo>` — delete a model entirely, complete or not (the only command that deletes complete snapshot files — separate from `clean` on purpose, see gotcha below)
