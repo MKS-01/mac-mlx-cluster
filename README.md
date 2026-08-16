@@ -12,8 +12,9 @@ one Mac, or pooled across two for models neither can hold alone.
 ![Python: 3.12+](https://img.shields.io/badge/Python-3.12%2B-orange?style=flat-square&labelColor=000000&logo=python&logoColor=white)
 [![Powered by MLX](https://img.shields.io/badge/Powered%20by-MLX-orange?style=flat-square&labelColor=000000)](https://github.com/ml-explore/mlx)
 
-<!-- Real screenshot: save as doc/img/cli.png and change the src below -->
-<img src="./doc/img/cli.svg" alt="mlx-cluster — live memory bars, model switching, and serving-mode control in one terminal session" width="720">
+<img src="./doc/img/cli.svg" alt="mlx-cluster running solo on one Mac: live memory bars, the loaded model, a reply, and its token usage" width="760">
+
+<sub>A real session — live memory/CPU/GPU/temp, the model that's loaded, and per-reply token accounting.</sub>
 
 </div>
 
@@ -46,44 +47,43 @@ failures included — that's where the gotchas sections come from.
             → 80 GB of combined unified memory for models neither can hold alone
 ```
 
-> Everything here — guides, `mlxctl`, `mlx-cluster` — is built and tested against
-> exactly two Macs, the pair in the diagram above. `mlx.launch`/MLX's
-> distributed layer isn't inherently limited to two nodes, so a larger,
-> N-Mac cluster is plausible in principle, but it's untested and unimplemented
-> here (hostfile generation, `/mode`, and wear-leveling all assume two nodes).
-> Fork it and adapt as needed if that's your use case.
+<details>
+<summary>Does this work with more than two Macs?</summary>
+
+<br>
+
+Everything here — guides, `mlxctl`, `mlx-cluster` — is built and tested against
+exactly two Macs, the pair in the diagram above. `mlx.launch`/MLX's
+distributed layer isn't inherently limited to two nodes, so a larger,
+N-Mac cluster is plausible in principle, but it's untested and unimplemented
+here (hostfile generation, `/mode`, and wear-leveling all assume two nodes).
+Fork it and adapt as needed if that's your use case.
+
+</details>
 
 ## What's in the box
 
-- **`mlx-cluster`** — terminal chat client + cluster operator, one session
-  for everything:
-  - `/mode solo|server|cluster` — switch how the model is served
-    mid-session: this Mac alone, the always-on server, or tensor-sharded
-    across both. No restart, no leaving the chat.
-  - `/model` — list what's cached on the serving node and switch, with a
-    memory-fit verdict against the Mac's real wired-memory ceiling before
-    anything loads.
-  - `/agent <dir>` — a built-in coding agent scoped to one directory,
-    running entirely on your own model: read/write/shell tools, y/N
-    confirmation before writes and commands, no cloud round-trips.
-  - `/stats` and `/split 60/40` — live per-node CPU/GPU/RAM/temp gauges,
-    and wear-leveling that balances serving time so one Mac doesn't
-    quietly take all the GPU wear.
-  - **Token accounting on every reply** — `↑ 82 in · ↓ 422 out · 17.1 tok/s
-    · 25.1s`, taken from the server's own usage counters rather than
-    estimated. Reasoning tokens are counted too, so a thinking model's real
-    cost is visible instead of hidden.
-  - **Text *and* vision models** — picks `mlx_lm` or `mlx_vlm` per model
-    automatically, so VLM-only architectures just work instead of failing
-    on the first message.
-- **`mlxctl`** — the model-cache manager `hf` should have shipped with: true
-  on-disk sizes, per-shard download progress, stuck-download rescue, a
-  will-it-fit verdict (`mlxctl meminfo`), and one-command server control
-  (`mlxctl server start|stop|status`) that works the same whether you're on
-  the server Mac or not.
-- **Verified guides** — single-Mac quickstart → Thunderbolt bridge → SSH mesh →
-  distributed smoke test → always-on LaunchAgent server, each step actually
-  run on the hardware in the diagram above.
+**`mlx-cluster`** — terminal chat client *and* cluster operator, one session
+for everything:
+
+| | |
+|---|---|
+| `/mode solo\|server\|cluster` | Switch how the model is served mid-session — this Mac alone, the always-on server, or tensor-sharded across both. No restart, no leaving the chat. |
+| `/model` | List what's cached on the serving node and switch, with a memory-fit verdict against the Mac's real wired-memory ceiling *before* anything loads. |
+| `/agent <dir>` | A coding agent scoped to one directory, running entirely on your own model: read/write/shell tools, y/N confirmation before writes and commands, no cloud round-trips. |
+| `/stats` · `/split 60/40` | Live per-node CPU/GPU/RAM/temp gauges, plus wear-leveling that balances serving time so one Mac doesn't quietly take all the GPU wear. |
+| **Token accounting** | Every reply ends with `↑ 82 in · ↓ 422 out · 17.1 tok/s · 25.1s` — the server's own counters, not an estimate. Reasoning tokens included, so a thinking model's real cost is visible. |
+| **Text *and* vision** | Picks `mlx_lm` or `mlx_vlm` per model automatically, so VLM-only architectures just work instead of failing on the first message. |
+
+**`mlxctl`** — the model-cache manager `hf` should have shipped with: true
+on-disk sizes, per-shard download progress, stuck-download rescue, a
+will-it-fit verdict (`mlxctl meminfo`), and one-command server control
+(`mlxctl server start|stop|status`) that works the same whether you're on
+the server Mac or not.
+
+**Verified guides** — single-Mac quickstart → Thunderbolt bridge → SSH mesh →
+distributed smoke test → always-on LaunchAgent server, each step actually
+run on the hardware in the diagram above.
 
 Only the cluster pieces need two Macs — everything else works standalone on a
 single Apple Silicon machine. And zero cloud, ever: every request stays on
@@ -98,11 +98,10 @@ single Mac:
 
 | Model | Weights | tok/s |
 |---|---|---|
-| Qwen2.5-VL-7B | 5.3 GB | 65 |
-| Qwen3.5-9B | 5.6 GB | 52 |
 | Muse-Glimmer-30B (default) | 19.3 GB | 17 |
+| Qwen3.5-9B | 5.6 GB | 52 |
 
-All three land at ~290–345 GB/s of effective bandwidth — that consistency
+Both land at ~290–330 GB/s of effective bandwidth — that consistency
 is the point. A large dense model running slowly is physics, not a
 misconfiguration, and **clustering won't fix it**: sharding pools *memory*,
 not bandwidth, and adds a per-layer round trip over a link ~60× slower than
@@ -145,12 +144,18 @@ cd src/cli && ./install.sh                   # deps + standalone binary → ~/.l
 mlx-cluster                                  # solo mode — works fine on one Mac
 ```
 
-`install.sh` does the whole thing: `bun install`, compiles a self-contained
-binary (Bun runtime included), installs it to `~/.local/bin` (override with
-`MLX_CLI_BIN_DIR`), warns if that's not on your `PATH`, and reminds you to
-create `~/.mlx/cluster-cli.json` from `config.example.json` for the two-Mac
-setup. Re-run it after pulling new changes. (`bun run setup` is the same
-script.)
+<details>
+<summary>What <code>install.sh</code> actually does</summary>
+
+<br>
+
+`bun install`, compiles a self-contained binary (Bun runtime included),
+installs it to `~/.local/bin` (override with `MLX_CLI_BIN_DIR`), warns if
+that's not on your `PATH`, and reminds you to create
+`~/.mlx/cluster-cli.json` from `config.example.json` for the two-Mac setup.
+Re-run it after pulling new changes. (`bun run setup` is the same script.)
+
+</details>
 
 When you're ready for the second Mac, the whole cluster build — bridge IPs
 through the always-on server — lives in
