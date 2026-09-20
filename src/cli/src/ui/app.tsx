@@ -578,7 +578,7 @@ export function App({
     dispatch({ type: "modelList", list: null });
     dispatch({ type: "switching", on: true });
     try {
-      await stopCurrentSession(config, prev);
+      await stopCurrentSession(config, prev, (line) => dispatch({ type: "notice", text: line }));
       const next = await start(config, model, (line) => dispatch({ type: "notice", text: line }));
       // Carrying rules: switching back to server mode discharges a prior
       // takeover (the LaunchAgent running again IS the restore) — and if the

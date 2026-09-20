@@ -367,20 +367,28 @@ export async function startOllama(
  * tookOverFromServer forward onto the replacement session so the quit-time
  * restore still happens.
  */
-export async function stopCurrentSession(config: ClusterConfig, session: Session): Promise<void> {
+export async function stopCurrentSession(
+  config: ClusterConfig,
+  session: Session,
+  onStatus?: (line: string) => void,
+): Promise<void> {
   if (session.mode === "local") stopLocalServer(session.localHandle);
   else if (session.mode === "shard") await stopDistributedServer(session.distributedHandle, config);
-  else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model);
+  else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model, onStatus);
   // "cluster": nothing to stop — the LaunchAgent keeps running until the
   // next start* boots it out (or quit, if this session started it).
 }
 
 /** Normal quit path — awaited, can do the SSH round trip to bootout. */
-export async function disconnect(config: ClusterConfig, session: Session | null): Promise<void> {
+export async function disconnect(
+  config: ClusterConfig,
+  session: Session | null,
+  onStatus?: (line: string) => void,
+): Promise<void> {
   if (!session) return;
   if (session.mode === "local" || session.mode === "shard" || session.mode === "ollama") {
     if (session.mode === "local") stopLocalServer(session.localHandle);
-    else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model);
+    else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model, onStatus);
     else await stopDistributedServer(session.distributedHandle, config);
     if (session.tookOverFromServer) {
       const result = await bootstrapRemote(

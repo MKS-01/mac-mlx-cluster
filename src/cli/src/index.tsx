@@ -108,7 +108,7 @@ async function shutdown(): Promise<void> {
   if (shutdownDone) return;
   shutdownDone = true;
   persistActiveTime();
-  await disconnect(config, session);
+  await disconnect(config, session, (line) => console.log(dim(line)));
 }
 
 // Safety net for paths where Node won't run async work (the 'exit' event,

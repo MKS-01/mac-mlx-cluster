@@ -104,10 +104,17 @@ export async function ensureOllama(
  * `ollama stop` blocks until the runner exits, so by the time we touch the
  * daemon there's nothing left for it to orphan.
  */
-export async function stopOllama(handle: OllamaHandle | null, model: string): Promise<void> {
+export async function stopOllama(
+  handle: OllamaHandle | null,
+  model: string,
+  onStatus?: (line: string) => void,
+): Promise<void> {
   if (!handle) return;
+  onStatus?.(`unloading ${model} from ollama…`);
   try {
-    await Bun.spawn(["ollama", "stop", model], { stdout: "ignore", stderr: "ignore" }).exited;
+    const stop = Bun.spawn(["ollama", "stop", model], { stdout: "ignore", stderr: "ignore" });
+    const code = await stop.exited;
+    onStatus?.(code === 0 ? `${model} unloaded — memory freed` : `${model} wasn't loaded, nothing to free`);
   } catch {
     // best-effort — fall through and stop the daemon regardless
   }
