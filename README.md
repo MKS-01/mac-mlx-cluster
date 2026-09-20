@@ -12,11 +12,19 @@ one Mac, or pooled across two for models neither can hold alone.
 ![Python: 3.12+](https://img.shields.io/badge/Python-3.12%2B-orange?style=flat-square&labelColor=000000&logo=python&logoColor=white)
 [![Powered by MLX](https://img.shields.io/badge/Powered%20by-MLX-orange?style=flat-square&labelColor=000000)](https://github.com/ml-explore/mlx)
 
+<p>
+  <a href="./doc/ARCHITECTURE.md">How it fits together</a> &nbsp;·&nbsp;
+  <a href="./doc/CLUSTER_SETUP.md">Full setup guide</a> &nbsp;·&nbsp;
+  <a href="#quick-start">Run it</a>
+</p>
+
 <img src="./doc/img/cli.svg" alt="mlx-cluster running solo on one Mac: live memory bars, the loaded model, a reply, and its token usage" width="760">
 
 <sub>A real session — live memory/CPU/GPU/temp, the model that's loaded, and per-reply token accounting.</sub>
 
 </div>
+
+---
 
 ## Why this exists
 
@@ -188,3 +196,10 @@ through the always-on server — lives in
 ## License
 
 [MIT](./LICENSE)
+
+<div align="center">
+
+<sub>A personal project — built to see if an aging M1 Pro could still pull its weight next to a newer Mac</sub><br>
+<sub>Built agent-first with <a href="https://claude.ai/code">Claude Code</a></sub>
+
+</div>
