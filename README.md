@@ -29,13 +29,14 @@ A weekend 1–3 AM side project, built after watching
 to see if my aging M1 Pro could pull its weight next to a newer Mac.
 [exo](https://github.com/exo-explore/exo) proved it possible, but its
 auto-discovery and web dashboard are overkill for two Macs whose IPs I
-already know — `mlx.launch` does the same job MLX-native with a fraction
-of the moving parts, wrapped here in a proper terminal CLI. It then kept
-growing: once the models were being served anyway, the obvious next step
-was pointing a coding agent at them, built straight into the chat client
-(`/agent`). Every command in
-[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real,
-failures included — that's where the gotchas sections come from.
+already know — `mlx.launch` does the same job MLX-native with a fraction of
+the moving parts, wrapped here in a proper terminal CLI.
+
+It then kept growing: once the models were being served anyway, the obvious
+next step was pointing a coding agent at them, built straight into the chat
+client (`/agent`). Every command in
+[`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real, failures
+included — that's where the gotchas sections come from.
 
 ## How it works
 
@@ -44,11 +45,14 @@ failures included — that's where the gotchas sections come from.
 </p>
 
 One CLI, three ways to serve the same model, one shared cache underneath.
-`/mode` picks **server** (the M1 Pro's always-on `mlx_lm.server`, the
-default), **solo** (this Mac serves itself, the other stays 100% free — set
-`defaultMode: "solo"` to start here without even probing the server), or
-**cluster** (`/mode cluster`, both Macs tensor-sharded over Thunderbolt for
-the ~80 GB of combined unified memory models neither Mac can hold alone).
+`/mode` picks:
+
+- **server** — the M1 Pro's always-on `mlx_lm.server`. The default.
+- **solo** — this Mac serves itself, the other stays 100% free. Set
+  `defaultMode: "solo"` to start here without even probing the server.
+- **cluster** — both Macs tensor-sharded over Thunderbolt (`/mode cluster`),
+  for the ~80 GB of combined unified memory models neither Mac can hold alone.
+
 `mlxctl` manages the same on-disk cache from either side. This is the
 five-minute picture — [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) has the
 full flowchart, the two serving patterns, measured throughput, and *why*
@@ -98,33 +102,28 @@ the Thunderbolt bridge or localhost.
 
 ## What to expect
 
-Generation on Apple Silicon is **memory-bandwidth bound, not compute
-bound**: a dense model reads essentially all its weights per token, so
-speed ≈ bandwidth ÷ weight size, and every model measured here lands around
-the same ~290–330 GB/s of effective bandwidth regardless of size. A large
-dense model running slowly is physics, not a misconfiguration, and
-**clustering won't fix it**: sharding pools *memory*, not bandwidth, and adds
-a per-layer round trip over a link ~60× slower than local memory. Want more
-speed? Pick a smaller model, or an MoE (which reads only a fraction of its
-weights per token). Want a model that fits in neither Mac alone? *That's*
-what cluster mode is for.
-
-**Default (solo/server/cluster) beats `/mode ollama` on speed, for the
-*same* model.** Most recent measurement, M5 Pro, `Muse-Glimmer-30B-4bit`,
-warm (weights already resident), `curl` straight at each server's API so
-the client is out of the equation: `mlx_vlm.server` ~16.9 tok/s vs. Ollama's
-own MLX runner ~14.8 tok/s — Ollama's runtime plus its OpenAI-compat
-translation layer costs roughly 12–15% here. The CLI itself has zero effect
-on generation speed either way — it's a thin HTTP client; the gap is
-entirely between the two backends. `/mode ollama` still earns its keep for
-one thing: reusing a model you already `ollama pull`ed without downloading
-it a second time into the HF cache. Pick it for reuse, not for speed.
-
-The default chat model is
-[`Muse-Glimmer-30B-4bit`](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit)
-— 30B dense, multimodal, Apache 2.0, built for tool use and long agent
-tasks. It runs under `mlx_vlm`, so `pip install -U mlx-vlm` if you want it;
-any `mlx-lm` text model works too and the CLI routes accordingly.
+- **Bandwidth-bound, not compute-bound.** A dense model reads essentially all
+  its weights per token, so speed ≈ bandwidth ÷ weight size — every model
+  measured here lands around the same ~290–330 GB/s regardless of size. A
+  large dense model running slowly is physics, not a misconfiguration.
+- **Clustering won't fix a slow model.** Sharding pools *memory*, not
+  bandwidth, and adds a per-layer round trip over a link ~60× slower than
+  local memory. Want more speed? Pick a smaller model, or an MoE (which reads
+  only a fraction of its weights per token). Want a model that fits in
+  neither Mac alone? *That's* what cluster mode is for.
+- **Direct mode beats `/mode ollama` on speed, same model.** Measured on an
+  M5 Pro, `Muse-Glimmer-30B-4bit`, warm, `curl` straight at each server's API
+  (client out of the equation): `mlx_vlm.server` ~16.9 tok/s vs. Ollama's own
+  MLX runner ~14.8 tok/s — its OpenAI-compat translation layer costs roughly
+  12–15% here. The CLI itself has zero effect on speed either way; it's a
+  thin HTTP client. `/mode ollama` earns its keep for reuse instead — a model
+  you already `ollama pull`ed, without downloading it again into the HF
+  cache — not for speed.
+- **Default model:**
+  [`Muse-Glimmer-30B-4bit`](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit) —
+  30B dense, multimodal, Apache 2.0, built for tool use and long agent tasks.
+  Runs under `mlx_vlm` (`pip install -U mlx-vlm`); any `mlx-lm` text model
+  works too and the CLI routes accordingly.
 
 ## Quick start
 
