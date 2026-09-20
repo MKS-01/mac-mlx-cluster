@@ -2,7 +2,9 @@
 """mlxctl — manage local MLX / Hugging Face models with colorful output.
 
 Commands:
-  list                  List downloaded models (size + complete/incomplete)
+  list                  List downloaded models (size + complete/incomplete),
+                        plus any models in Ollama's own store (servable via
+                        mlx-cluster's /mode ollama; not in the HF cache)
   status <repo>         Show download progress for one repo (incomplete-aware)
   download <repo>       Download a model (refuses if one is already running)
   remove <repo>         Delete a model from the cache entirely, complete or not
@@ -79,6 +81,37 @@ def real_size(path):
                 pass
     return total
 
+OLLAMA_MANIFESTS = Path(
+    os.environ.get("OLLAMA_MODELS", str(Path.home() / ".ollama/models"))
+) / "manifests"
+
+
+def ollama_models():
+    """
+    Models in Ollama's own store, as [(name, bytes)].
+
+    Ollama keeps a content-addressed blob store rather than HF snapshots, so
+    these never appear in the HF cache — but they're servable via `mlx-cluster`
+    (/mode ollama), and their disk cost is real, which is exactly what someone
+    running `mlxctl list` wants to know. Read straight from the manifests so
+    this works with the daemon stopped and never starts one.
+    """
+    if not OLLAMA_MANIFESTS.exists():
+        return []
+    out = []
+    for m in OLLAMA_MANIFESTS.glob("*/*/*/*"):
+        if not m.is_file():
+            continue
+        try:
+            data = json.loads(m.read_text())
+            size = sum(l.get("size", 0) for l in data.get("layers", []))
+        except (ValueError, OSError):
+            continue  # not a manifest, or unreadable — skip quietly
+        if size:
+            out.append((f"{m.parent.name}:{m.name}", size))
+    return sorted(out, key=lambda r: -r[1])
+
+
 def all_repos():
     if not HUB.exists():
         return []
@@ -134,10 +167,26 @@ def downloading_pid(repo):
         return None
 
 # ---- commands -----------------------------------------------------------
+def print_ollama_section():
+    """Second section of `list` — Ollama's store, when it has anything."""
+    models = ollama_models()
+    if not models:
+        return
+    print()
+    print(bold(f"{'OLLAMA':<9}{'SIZE':>9}  MODEL") + dim("   (mlx-cluster: /mode ollama)"))
+    print(dim("─" * 60))
+    for name, size in models:
+        print(f"{OK} {grn('pulled'):<16}{human(size):>9}  {mag(name)}")
+    print(dim("─" * 60))
+    print(f"{'':9}{bold(human(sum(s for _, s in models))):>18}  {dim(str(len(models)) + ' models')}")
+
+
 def cmd_list(_args):
     repos = all_repos()
     if not repos:
-        print(dim("(cache empty)")); return
+        print(dim("(cache empty)"))
+        print_ollama_section()
+        return
     print(bold(f"{'STATUS':<9}{'SIZE':>9}  REPO"))
     print(dim("─" * 60))
     total = 0
@@ -157,6 +206,7 @@ def cmd_list(_args):
         print(f"{sym} {label:<16}{human(size):>9}  {cyn(repo)}")
     print(dim("─" * 60))
     print(f"{'':9}{bold(human(total)):>18}  {dim(str(len(repos)) + ' repos')}")
+    print_ollama_section()
 
 def cmd_status(args):
     if not args: die("usage: mlxctl status <repo>")

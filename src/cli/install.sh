@@ -23,6 +23,14 @@ bun install
 echo "▸ compiling ${BIN_NAME}…"
 bun build ./src/index.tsx --compile --outfile "dist/${BIN_NAME}"
 
+# bun's --compile patches the binary post-link without always refreshing its
+# ad-hoc signature, which leaves a page hash mismatch — macOS's AMFI then
+# SIGKILLs it on every launch ("CODE SIGNING: cs_invalid_page ... denying
+# page") with no other error. Re-signing over the final on-disk bytes fixes it.
+if [ "$(uname)" = "Darwin" ] && command -v codesign >/dev/null 2>&1; then
+  codesign --force -s - "dist/${BIN_NAME}"
+fi
+
 mkdir -p "$BIN_DIR"
 install -m 755 "dist/${BIN_NAME}" "${BIN_DIR}/${BIN_NAME}"
 echo "✓ installed ${BIN_DIR}/${BIN_NAME}"

@@ -14,6 +14,7 @@ import {
   type DistributedServerHandle,
 } from "../net/distributed";
 import { checkCachedOnBothNodes } from "../models/models";
+import { ensureOllama, stopOllama, stopOllamaSync, listOllamaModels, OllamaError, type OllamaHandle } from "../net/ollama";
 import {
   sshReachable,
   bootstrapRemote,
@@ -25,7 +26,8 @@ import {
 // cluster: Pattern A — attached to the server node's LaunchAgent
 // local:   whole model served by a process this CLI spawned on this Mac
 // shard:   Pattern B — tensor-parallel across all nodes via mlx.launch
-export type Mode = "cluster" | "local" | "shard";
+// ollama:  served by a local Ollama daemon (its own MLX runner + model store)
+export type Mode = "cluster" | "local" | "shard" | "ollama";
 // cluster: "attached" — server was already running, ours to use but not to stop
 //          "started"  — we bootstrapped it ourselves, ours to stop on quit
 export type ClusterOrigin = "attached" | "started" | null;
@@ -41,6 +43,9 @@ export interface Session {
   localHandle: LocalServerHandle | null;
   // only set in shard mode — the mlx.launch group this CLI spawned and owns
   distributedHandle: DistributedServerHandle | null;
+  // only set in ollama mode; its `proc` is null when we attached to a daemon
+  // that was already running, which we must not stop (see net/ollama.ts)
+  ollamaHandle: OllamaHandle | null;
   // true if the designated server node answered SSH (needed for /model switch in cluster mode)
   serverSshOk: boolean;
   clusterOrigin: ClusterOrigin;
@@ -153,6 +158,7 @@ export async function connect(
       model,
       localHandle: null,
       distributedHandle: null,
+      ollamaHandle: null,
       serverSshOk,
       clusterOrigin,
       localOrigin: null,
@@ -167,6 +173,7 @@ export async function connect(
     model,
     localHandle,
     distributedHandle: null,
+    ollamaHandle: null,
     serverSshOk: false,
     clusterOrigin: null,
     localOrigin: "fallback",
@@ -213,6 +220,7 @@ export async function connectPreferPeer(
     model,
     localHandle,
     distributedHandle: null,
+    ollamaHandle: null,
     serverSshOk: false,
     clusterOrigin: null,
     localOrigin: "takeover",
@@ -289,6 +297,7 @@ export async function startCluster(
       model,
       localHandle: null,
       distributedHandle: handle,
+      ollamaHandle: null,
       serverSshOk: await sshReachable(server.sshUser, server.ip, 3000),
       clusterOrigin: null,
       localOrigin: null,
@@ -304,6 +313,53 @@ export async function startCluster(
 }
 
 /**
+ * /mode ollama — serve through a local Ollama daemon, which runs its own MLX
+ * runner over its own model store. The point is reuse: models pulled with
+ * `ollama pull` are otherwise invisible here and would have to be downloaded
+ * a second time into the HF cache.
+ *
+ * Unlike the other modes this doesn't touch the server node at all — Ollama is
+ * a separate local runtime, not another way of arranging this repo's venv — so
+ * there's no LaunchAgent to stop and no takeover to restore.
+ *
+ * The model must already be pulled: `ollama pull` can be a multi-GB download,
+ * the same deliberate-user-step reasoning that keeps /mode cluster from
+ * auto-copying models between nodes. An unpulled name is reported with what
+ * IS available rather than silently starting a download.
+ */
+export async function startOllama(
+  config: ClusterConfig,
+  model: string,
+  onStatus: (line: string) => void,
+): Promise<Session> {
+  const { host, port } = config.ollama;
+  const handle = await ensureOllama(host, port, onStatus);
+
+  const available = await listOllamaModels(host, port).catch(() => [] as { repo: string }[]);
+  if (available.length && !available.some((m) => m.repo === model)) {
+    await stopOllama(handle, model); // only stops a daemon we just started
+    throw new OllamaError(
+      `ollama has no model "${model}" — pull it first (\`ollama pull ${model}\`). ` +
+        `Available: ${available.map((m) => m.repo).join(", ")}`,
+    );
+  }
+
+  onStatus(`serving ${model} through ollama`);
+  return {
+    mode: "ollama",
+    base: handle.base,
+    model,
+    localHandle: null,
+    distributedHandle: null,
+    ollamaHandle: handle,
+    serverSshOk: false,
+    clusterOrigin: null,
+    localOrigin: null,
+    tookOverFromServer: false,
+  };
+}
+
+/**
  * Tears down whatever the current session is serving through, WITHOUT
  * restoring the server node's LaunchAgent — used when switching between
  * modes mid-session (the next start* decides what serves; only quitting
@@ -311,18 +367,28 @@ export async function startCluster(
  * tookOverFromServer forward onto the replacement session so the quit-time
  * restore still happens.
  */
-export async function stopCurrentSession(config: ClusterConfig, session: Session): Promise<void> {
+export async function stopCurrentSession(
+  config: ClusterConfig,
+  session: Session,
+  onStatus?: (line: string) => void,
+): Promise<void> {
   if (session.mode === "local") stopLocalServer(session.localHandle);
   else if (session.mode === "shard") await stopDistributedServer(session.distributedHandle, config);
+  else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model, onStatus);
   // "cluster": nothing to stop — the LaunchAgent keeps running until the
   // next start* boots it out (or quit, if this session started it).
 }
 
 /** Normal quit path — awaited, can do the SSH round trip to bootout. */
-export async function disconnect(config: ClusterConfig, session: Session | null): Promise<void> {
+export async function disconnect(
+  config: ClusterConfig,
+  session: Session | null,
+  onStatus?: (line: string) => void,
+): Promise<void> {
   if (!session) return;
-  if (session.mode === "local" || session.mode === "shard") {
+  if (session.mode === "local" || session.mode === "shard" || session.mode === "ollama") {
     if (session.mode === "local") stopLocalServer(session.localHandle);
+    else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model, onStatus);
     else await stopDistributedServer(session.distributedHandle, config);
     if (session.tookOverFromServer) {
       const result = await bootstrapRemote(
@@ -351,8 +417,9 @@ export async function disconnect(config: ClusterConfig, session: Session | null)
  */
 export function disconnectSync(config: ClusterConfig, session: Session | null): void {
   if (!session) return;
-  if (session.mode === "local" || session.mode === "shard") {
+  if (session.mode === "local" || session.mode === "shard" || session.mode === "ollama") {
     if (session.mode === "local") stopLocalServer(session.localHandle);
+    else if (session.mode === "ollama") stopOllamaSync(session.ollamaHandle, session.model);
     else stopDistributedServerSync(session.distributedHandle, config);
     if (session.tookOverFromServer) {
       bootstrapRemoteSync(config.server.sshUser, config.server.ip, config.server.plistPath, config.server.serviceLabel);

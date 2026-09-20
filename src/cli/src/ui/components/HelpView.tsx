@@ -9,6 +9,7 @@ const ROWS: [string, string][] = [
   ["/mode solo", "serve on this Mac only (frees the server node)"],
   ["/mode server", "attach back to the dedicated server node"],
   ["/mode cluster [<m>]", "shard across all nodes — for models too big for one"],
+  ["/mode ollama [<m>]", "serve through the local ollama daemon (its own models)"],
   ["/agent [<dir>]", "coding agent, here or in <dir> (read/write/bash, asks first)"],
   ["/agent off", "leave agent mode, back to plain chat"],
   ["/stats", "toggle combined ↔ per-node stats view"],

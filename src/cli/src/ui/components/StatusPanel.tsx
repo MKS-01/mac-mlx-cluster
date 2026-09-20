@@ -14,6 +14,10 @@ function Label({ text }: { text: string }) {
 
 function serverLabel(session: Session): string {
   if (session.mode === "shard") return "sharded · all nodes (tensor parallel)";
+  if (session.mode === "ollama") {
+    // proc null = the daemon was already running and outlives this session.
+    return session.ollamaHandle?.proc ? "ollama · started by this session" : "ollama · attached";
+  }
   if (session.mode === "local") {
     // Attached (localHandle null): serving through a local server someone
     // else started (another client, a previous session) — not ours to stop.

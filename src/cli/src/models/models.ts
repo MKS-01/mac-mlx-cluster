@@ -1,6 +1,7 @@
 import type { ClusterConfig } from "../config/config";
 import type { Session } from "../cluster/cluster";
 import { runRemote } from "../net/ssh";
+import { listOllamaModels } from "../net/ollama";
 
 export interface CachedModel {
   repo: string; // org/name
@@ -34,6 +35,15 @@ function parseDu(output: string): CachedModel[] {
  * not in it can't be switched to.
  */
 export async function listServerModels(config: ClusterConfig, session: Session): Promise<ModelListResult> {
+  // Ollama keeps its own model store, so the HF cache says nothing about what
+  // it can serve — ask the daemon instead.
+  if (session.mode === "ollama") {
+    try {
+      return { ok: true, models: await listOllamaModels(config.ollama.host, config.ollama.port) };
+    } catch (err) {
+      return { ok: false, message: `could not list ollama models: ${(err as Error).message}` };
+    }
+  }
   if (session.mode === "local") {
     const proc = Bun.spawnSync(["sh", "-c", LIST_CMD]);
     if (proc.exitCode !== 0) {

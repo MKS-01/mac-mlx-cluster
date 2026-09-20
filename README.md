@@ -109,6 +109,17 @@ local memory. Want more speed? Pick a smaller model, or an MoE (which reads
 only a fraction of its weights per token). Want a model that fits in
 neither Mac alone? *That's* what cluster mode is for.
 
+**Default (solo/server/cluster) beats `/mode ollama` on speed, for the
+*same* model.** Measured on an M5 Pro, `Muse-Glimmer-30B-4bit`, warm (weights
+already resident), `curl` straight at each server's API so the client is out
+of the equation: `mlx_vlm.server` ~16.9 tok/s vs. Ollama's own MLX runner
+~14.8 tok/s — Ollama's runtime plus its OpenAI-compat translation layer costs
+roughly 12–15% here. The CLI itself has zero effect on generation speed either
+way — it's a thin HTTP client; the gap is entirely between the two backends.
+`/mode ollama` still earns its keep for one thing: reusing a model you already
+`ollama pull`ed without downloading it a second time into the HF cache. Pick
+it for reuse, not for speed.
+
 The default chat model is
 [`Muse-Glimmer-30B-4bit`](https://huggingface.co/mlx-community/Muse-Glimmer-30B-4bit)
 — 30B dense, multimodal, Apache 2.0, built for tool use and long agent

@@ -3,11 +3,12 @@ import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { startSolo, startServer, startCluster, stopCurrentSession, agentModelFor, type Session } from "../cluster/cluster";
+import { startSolo, startServer, startCluster, startOllama, stopCurrentSession, agentModelFor, type Session } from "../cluster/cluster";
 import type { ClusterConfig } from "../config/config";
 import { streamChat, formatUsage, ChatStreamError, type ChatMessage } from "../chat/chat";
 import { runAgent, AgentAborted } from "../agent/agentLoop";
 import { switchModel } from "../models/switchModel";
+import { listOllamaModels } from "../net/ollama";
 import { listServerModels, resolveModel, type CachedModel } from "../models/models";
 import { fetchNodeStats, combineStats, selfNodeId, type NodeStats } from "../net/macmon";
 import { loadPrefs, savePrefs } from "../config/prefs";
@@ -25,7 +26,7 @@ import { InputBar } from "./components/InputBar";
 const HEADER_LINES = 3; // Header.tsx: wordmark row, marginTop, subtitle+version row
 const PANEL_FIXED_LINES = 2; // StatusPanel model + server rows (memory rows counted per view)
 const INPUT_LINES = 3; // InputBar's round border adds a row above and below
-const HELP_LINES = 16; // HelpView.tsx rows + its marginBottom
+const HELP_LINES = 17; // HelpView.tsx rows + its marginBottom
 const PADDING_LINES = 2; // App's paddingY={1} top+bottom
 const SAFETY_MARGIN = 1; // avoid the very last row (some terminals clip it)
 
@@ -443,9 +444,15 @@ export function App({
     if (listRes.ok) {
       const resolved = resolveModel(arg, listRes.models);
       if (resolved.kind === "none") {
+        // "name:tag" is Ollama's naming, not an HF repo id — and Ollama's
+        // store is invisible to the HF cache listing, so a miss here is
+        // usually a mode mistake rather than a missing download.
+        const looksOllama = session.mode !== "ollama" && /^[^/\s]+:[^/\s]+$/.test(arg);
         dispatch({
           type: "error",
-          message: `no cached model on ${cacheNode} matches "${arg}" — /model to list, or download it there first`,
+          message: looksOllama
+            ? `no cached model on ${cacheNode} matches "${arg}" — that looks like an ollama model; try /mode ollama ${arg}`
+            : `no cached model on ${cacheNode} matches "${arg}" — /model to list, or download it there first`,
         });
         return;
       }
@@ -503,6 +510,7 @@ export function App({
       dispatch({ type: "modelSwitched", session: result.session });
       savePrefs({
         model: result.session.model,
+        backend: backendOf(result.session),
         statsView: stateRef.current.statsView,
         splitTarget: stateRef.current.splitTarget,
         splitHistory: prefs.splitHistory,
@@ -535,6 +543,7 @@ export function App({
     dispatch({ type: "setSplitTarget", target: parsed });
     savePrefs({
       model: stateRef.current.session.model,
+        backend: backendOf(stateRef.current.session),
       statsView: stateRef.current.statsView,
       splitTarget: parsed,
       splitHistory: prefs.splitHistory,
@@ -544,9 +553,14 @@ export function App({
 
   // Plain-language description of how the model is currently being served —
   // used by /mode's notices so the copy stays node-name-agnostic.
+  // Persisted alongside the model so the next session restores the runtime
+  // that can actually serve it (see prefs.ts's `backend`).
+  const backendOf = (s: Session) => (s.mode === "ollama" ? ("ollama" as const) : null);
+
   const describeMode = (s: Session): string => {
     if (s.mode === "shard") return "cluster — sharded across all nodes";
     if (s.mode === "cluster") return `server — ${config.server.id} serves the whole model`;
+    if (s.mode === "ollama") return "ollama — served by the local ollama daemon";
     return "solo — this Mac serves the whole model";
   };
 
@@ -564,7 +578,7 @@ export function App({
     dispatch({ type: "modelList", list: null });
     dispatch({ type: "switching", on: true });
     try {
-      await stopCurrentSession(config, prev);
+      await stopCurrentSession(config, prev, (line) => dispatch({ type: "notice", text: line }));
       const next = await start(config, model, (line) => dispatch({ type: "notice", text: line }));
       // Carrying rules: switching back to server mode discharges a prior
       // takeover (the LaunchAgent running again IS the restore) — and if the
@@ -577,6 +591,7 @@ export function App({
       dispatch({ type: "modelSwitched", session: merged });
       savePrefs({
         model: merged.model,
+        backend: backendOf(merged),
         statsView: stateRef.current.statsView,
         splitTarget: stateRef.current.splitTarget,
         splitHistory: prefs.splitHistory,
@@ -600,7 +615,7 @@ export function App({
     if (!sub) {
       dispatch({
         type: "notice",
-        text: `mode: ${describeMode(session)} · /mode solo | server | cluster [<model>]`,
+        text: `mode: ${describeMode(session)} · /mode solo | server | cluster | ollama [<model>]`,
       });
       return;
     }
@@ -620,8 +635,34 @@ export function App({
       await replaceSession(session, session.model, startServer);
       return;
     }
+    // ollama: its model names ("qwen3.8:27b-mlx") are not HF repo ids and its
+    // store is separate from the HF cache, so resolve the optional model arg
+    // against the daemon's own list rather than the serving node's cache.
+    if (sub === "ollama") {
+      let target = modelArg ?? session.model;
+      const listRes = await listOllamaModels(config.ollama.host, config.ollama.port).catch(() => null);
+      if (listRes) {
+        const resolved = resolveModel(target, listRes);
+        if (resolved.kind === "ambiguous") {
+          dispatch({ type: "error", message: `"${target}" matches: ${resolved.repos.join(", ")} — be more specific` });
+          return;
+        }
+        // No match: fall through as typed so startOllama reports what IS
+        // available, rather than guessing a model here.
+        if (resolved.kind === "match") target = resolved.repo;
+      }
+      if (session.mode === "ollama" && target === session.model) {
+        dispatch({ type: "notice", text: `already serving ${target} through ollama` });
+        return;
+      }
+      await replaceSession(session, target, startOllama);
+      return;
+    }
     if (sub !== "cluster") {
-      dispatch({ type: "error", message: `unknown mode "${sub}" — /mode solo | server | cluster [<model>]` });
+      dispatch({
+        type: "error",
+        message: `unknown mode "${sub}" — /mode solo | server | cluster | ollama [<model>]`,
+      });
       return;
     }
 
@@ -669,6 +710,7 @@ export function App({
         dispatch({ type: "setStatsView", view: next });
         savePrefs({
           model: state.session.model,
+        backend: backendOf(state.session),
           statsView: next,
           splitTarget: state.splitTarget,
           splitHistory: prefs.splitHistory,
@@ -807,7 +849,13 @@ export function App({
         <ModelListView
           models={state.modelList}
           current={state.session.model}
-          nodeId={state.session.mode === "local" ? "this Mac" : config.server.id}
+          nodeId={
+            state.session.mode === "ollama"
+              ? "ollama"
+              : state.session.mode === "local"
+                ? "this Mac"
+                : config.server.id
+          }
           // fit is judged against the RAM of whichever node(s) serve: nodes
           // is [server, peer]; in local mode "this Mac" is the peer (the dev
           // machine serving itself), and shard mode aggregates both nodes'
