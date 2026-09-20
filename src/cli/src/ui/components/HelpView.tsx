@@ -6,7 +6,7 @@ const ROWS: [string, string][] = [
   ["/model", "list models cached on the serving node"],
   ["/model <name>", "switch model — substring ok, e.g. /model 27b"],
   ["/mode", "show how the model is served"],
-  ["/mode solo", "serve on this Mac only (frees the server node)"],
+  ["/mode solo", "serve on your Mac only (frees the server node)"],
   ["/mode server", "attach back to the dedicated server node"],
   ["/mode cluster [<m>]", "shard across all nodes — for models too big for one"],
   ["/mode ollama [<m>]", "serve through the local ollama daemon (its own models)"],

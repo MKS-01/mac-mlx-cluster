@@ -11,7 +11,11 @@ working on an M5 Pro (48 GB) + M1 Pro (32 GB) over Thunderbolt 4, based on
 the workflow from [WWDC 2026 session 233](https://developer.apple.com/videos/play/wwdc2026/233/),
 adapted for Thunderbolt 4 (see [Backend choice](#backend-choice-ring-not-jaccl)).
 Throughout the cluster sections, **node A** is the Mac you launch from
-(rank 0) and **node B** is the other Mac (rank 1). Adjust usernames/IPs to
+(rank 0) and **node B** is the other Mac (rank 1). That's an `mlx.launch`
+rank, not a role: the other docs talk about **the server Mac** (whichever
+node runs the always-on LaunchAgent, `m1` here) and **your Mac** (whichever
+you're sitting at, `m5` here), and you normally launch cluster jobs from
+your Mac, so node A is usually *not* the server Mac. Adjust usernames/IPs to
 your machines, and run the command blocks **from the repo root** (paths
 like `src/tools/dist_bench.py` are repo-relative).
 
@@ -307,7 +311,7 @@ ssh <user>@10.0.0.1 'launchctl kickstart -k gui/$(id -u)/com.mlx-server'  # rest
 ssh <user>@10.0.0.1 'launchctl bootout gui/$(id -u)/com.mlx-server'      # stop + disable
 ```
 
-Use it from the other Mac — OpenAI-compatible API:
+Use it from your Mac — OpenAI-compatible API:
 
 ```sh
 curl -s http://10.0.0.1:8080/v1/chat/completions -H 'Content-Type: application/json' \
@@ -401,26 +405,26 @@ source ~/.zshenv                      # if mlx_lm.*/mlxctl aren't on PATH in an 
 # MLX venv: ~/.venvs/mlx  ·  models: ~/.cache/huggingface/hub  (neither in this repo)
 ```
 
-### Pattern A server (the M1's always-on LaunchAgent)
+### Pattern A server (the server Mac's always-on LaunchAgent)
 
 ```sh
 mlxctl server status                  # ●running / ○not — runs launchctl locally or over SSH
-mlxctl server start                   # bring the M1 LaunchAgent server up
+mlxctl server start                   # bring the server Mac's LaunchAgent up
 mlxctl server stop                    # unload it (a plain pkill just gets KeepAlive-respawned)
 curl -s http://10.0.0.1:8080/v1/models | python3 -m json.tool   # what it's serving
 ```
 
-### Cluster / sharding: keep the M1 awake
+### Cluster / sharding: keep the server Mac awake
 
 `/mode cluster [repo]` inside `mlx-cluster` is the daily driver (§7 above). The
-#1 cause of cluster-mode failures here: the M1 is a MacBook that sleeps, and a
-sleeping M1 makes `mlx.launch`'s SSH to start rank 1 time out →
-`mlx.launch exited during startup (code 0)`.
+#1 cause of cluster-mode failures here: the server Mac is a MacBook (an M1 Pro)
+that sleeps, and a sleeping node makes `mlx.launch`'s SSH to start rank 1 time
+out → `mlx.launch exited during startup (code 0)`.
 
 ```sh
 ssh <user>@10.0.0.1 'nohup caffeinate -dimsu >/dev/null 2>&1 &'   # keep awake (no sudo; dies on reboot)
 ssh <user>@10.0.0.1 'pkill -x caffeinate'                          # stop keeping awake
-ssh <user>@10.0.0.1 'sudo pmset -c sleep 0'                        # permanent (needs sudo on the M1)
+ssh <user>@10.0.0.1 'sudo pmset -c sleep 0'                        # permanent (needs sudo on the server Mac)
 ```
 
 If a cluster launch fails, the manual command in §7 (run directly instead of

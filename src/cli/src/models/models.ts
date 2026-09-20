@@ -99,7 +99,7 @@ export async function checkCachedOnBothNodes(
   const cmd = `test -d ${dir}`;
   const missingOn: string[] = [];
   const local = Bun.spawnSync(["sh", "-c", cmd]);
-  if (local.exitCode !== 0) missingOn.push("this Mac");
+  if (local.exitCode !== 0) missingOn.push("your Mac");
   const remote = await runRemote(config.server.sshUser, config.server.ip, cmd, 10_000);
   if (!remote.ok) missingOn.push(config.server.id);
   return missingOn.length === 0 ? { ok: true } : { ok: false, missingOn };

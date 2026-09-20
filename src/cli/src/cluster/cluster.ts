@@ -145,7 +145,7 @@ export async function connect(
         onStatus(`${started.message} — falling back to local mode`);
       }
     } else {
-      onStatus(`${server.id} unreachable via SSH too — falling back to local mode on this Mac`);
+      onStatus(`${server.id} unreachable via SSH too — falling back to local mode on your Mac`);
     }
   }
 

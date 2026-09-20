@@ -426,7 +426,7 @@ export function App({
     // local mode reads this Mac's cache; cluster and shard both read the
     // server node's over SSH (in shard mode every node must have the model,
     // and the server node is the one we can't see locally).
-    const cacheNode = session.mode === "local" ? "this Mac" : config.server.id;
+    const cacheNode = session.mode === "local" ? "your Mac" : config.server.id;
     dispatch({ type: "notice", text: `reading model cache on ${cacheNode}…` });
     const listRes = await listServerModels(config, session);
 
@@ -561,7 +561,7 @@ export function App({
     if (s.mode === "shard") return "cluster — sharded across all nodes";
     if (s.mode === "cluster") return `server — ${config.server.id} serves the whole model`;
     if (s.mode === "ollama") return "ollama — served by the local ollama daemon";
-    return "solo — this Mac serves the whole model";
+    return "solo — your Mac serves the whole model";
   };
 
   // Shared teardown-then-start path for /mode switches: stops whatever the
@@ -621,7 +621,7 @@ export function App({
     }
     if (sub === "solo") {
       if (session.mode === "local") {
-        dispatch({ type: "notice", text: "already solo — this Mac is serving" });
+        dispatch({ type: "notice", text: "already solo — your Mac is serving" });
         return;
       }
       await replaceSession(session, session.model, startSolo);
@@ -853,7 +853,7 @@ export function App({
             state.session.mode === "ollama"
               ? "ollama"
               : state.session.mode === "local"
-                ? "this Mac"
+                ? "your Mac"
                 : config.server.id
           }
           // fit is judged against the RAM of whichever node(s) serve: nodes

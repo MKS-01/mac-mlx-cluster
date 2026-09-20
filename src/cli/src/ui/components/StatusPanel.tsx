@@ -21,10 +21,10 @@ function serverLabel(session: Session): string {
   if (session.mode === "local") {
     // Attached (localHandle null): serving through a local server someone
     // else started (another client, a previous session) — not ours to stop.
-    if (!session.localHandle) return "solo · this Mac (attached to running server)";
+    if (!session.localHandle) return "solo · your Mac (attached to running server)";
     // A deliberate takeover (wear-leveling turn, /mode solo) reads
     // differently than an emergency fallback with the server unreachable.
-    return session.localOrigin === "takeover" ? "solo · this Mac" : "solo · this Mac (server unreachable)";
+    return session.localOrigin === "takeover" ? "solo · your Mac" : "solo · your Mac (server unreachable)";
   }
   return session.clusterOrigin === "started" ? "server · started by this session" : "server · attached";
 }

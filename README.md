@@ -28,13 +28,18 @@ one Mac, or pooled across two for models neither can hold alone.
 One CLI, three ways to serve the same model, one shared cache underneath.
 
 <p align="center">
-  <img src="./doc/img/architecture.svg" alt="you talk to mlx-cluster or mlxctl; mlx-cluster routes to /mode server (the M1's always-on mlx_lm.server LaunchAgent), /mode solo (a local spawn on this Mac), or /mode cluster (both Macs, tensor-parallel over mlx.launch); all three and mlxctl read the same HF cache; macmon feeds live stats back into mlx-cluster every 2 seconds" width="720">
+  <img src="./doc/img/architecture.svg" alt="you talk to mlx-cluster or mlxctl; mlx-cluster routes to /mode server (the server Mac's always-on mlx_lm.server LaunchAgent), /mode solo (a local spawn on your Mac), or /mode cluster (both Macs, tensor-parallel over mlx.launch); all three and mlxctl read the same HF cache; macmon feeds live stats back into mlx-cluster every 2 seconds" width="720">
 </p>
+
+Two roles, and either machine can play either one: the **server Mac** runs the
+always-on LaunchAgent, **your Mac** is whatever you're sitting at. In solo mode
+they're the same machine. (Here that's an M1 Pro 32 GB serving and an M5 Pro
+48 GB for dev, but nothing in the tooling cares which is which.)
 
 `/mode` picks which one you're using:
 
-- **server** — the M1 Pro's always-on `mlx_lm.server`. The default.
-- **solo** — this Mac serves itself, the other stays 100% free. Set
+- **server** — the server Mac's always-on `mlx_lm.server`. The default.
+- **solo** — your Mac serves itself; the server Mac stays 100% free. Set
   `defaultMode: "solo"` to start here without even probing the server.
 - **cluster** — both Macs tensor-sharded over Thunderbolt, for the ~80 GB of
   combined unified memory models neither Mac can hold alone.
@@ -66,7 +71,7 @@ for everything ([full command reference](./src/cli/README.md)):
 
 | Command / feature | What it does |
 |---|---|
-| `/mode solo\|server\|cluster` | Switch how the model is served mid-session — this Mac alone, the always-on server, or tensor-sharded across both. No restart, no leaving the chat. |
+| `/mode solo\|server\|cluster` | Switch how the model is served mid-session — your Mac alone, the always-on server Mac, or tensor-sharded across both. No restart, no leaving the chat. |
 | `/model` | List what's cached on the serving node and switch, with a memory-fit verdict against the Mac's real wired-memory ceiling *before* anything loads. |
 | `/agent <dir>` | A coding agent scoped to one directory, running entirely on your own model: read/write/shell tools, y/N confirmation before writes and commands, no cloud round-trips. |
 | `/stats` · `/split 60/40` | Live per-node CPU/GPU/RAM/temp gauges, plus wear-leveling that balances serving time so one Mac doesn't quietly take all the GPU wear. |

@@ -68,7 +68,7 @@ export async function fetchNodeStats(
     id,
     reachable: false,
     snapshot: null,
-    error: isSelf ? `macmon not running on this Mac (port ${port})` : `macmon unreachable at ${base}`,
+    error: isSelf ? `macmon not running on your Mac (port ${port})` : `macmon unreachable at ${base}`,
   };
 }
 

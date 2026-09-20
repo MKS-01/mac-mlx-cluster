@@ -13,7 +13,7 @@ flowchart LR
     you --> ctl["mlxctl"]
 
     cli -->|"/mode server"| A["m1 · mlx_lm.server<br/>LaunchAgent — Pattern A, default"]
-    cli -->|"/mode solo"| B["this Mac · local spawn<br/>fallback / takeover"]
+    cli -->|"/mode solo"| B["your Mac · local spawn<br/>fallback / takeover"]
     cli -->|"/mode cluster"| C["both Macs · mlx.launch ring<br/>tensor-parallel — Pattern B, >~38 GB"]
 
     A & B & C --> cache[("HF cache<br/>offline source of truth")]
@@ -34,6 +34,12 @@ static IPs on top):
 |---|---|---|---|---|
 | **m1** | server (always-on) | M1 Pro | 32 GB | `10.0.0.1` |
 | **m5** | dev / peer | M5 Pro (faster) | 48 GB | `10.0.0.2` |
+
+`m1` and `m5` are node IDs (hostnames in the config, hostfile, and SSH
+config), not hardware claims — the roles are what matter. Where the docs say
+**the server Mac** they mean whichever node runs the always-on LaunchAgent
+(`m1` here), and **your Mac** means whichever one you're sitting at (`m5`
+here). Swap them freely; nothing in the tooling assumes a specific chip.
 
 No Wi-Fi/LAN dependency for cluster traffic — everything (SSH, the model
 API, macmon stats, distributed `mlx.launch` jobs) rides the Thunderbolt
@@ -239,15 +245,15 @@ infrastructure that an ordinary session never assumes ownership of.
 runs:
 
 - **`"server"`** (shipped default) — the flow just described: probe the m1,
-  fall back to this Mac only if it's unreachable.
-- **`"solo"`** — serve on this Mac from the start, skipping the m1 probe
+  fall back to your Mac only if it's unreachable.
+- **`"solo"`** — serve on your Mac from the start, skipping the m1 probe
   and the wear-leveling turn check entirely (that check only decides
   *which* Mac serves, which is already answered). Right setting for a
-  one-Mac setup, or when the other Mac is usually off/asleep/unplugged.
+  one-Mac setup, or when the server Mac is usually off/asleep/unplugged.
 
 The distinction is visible in the status panel: a deliberate solo session
-reads `solo · this Mac`, while an emergency fallback reads
-`solo · this Mac (server unreachable)` (`LocalOrigin: "takeover"` vs
+reads `solo · your Mac`, while an emergency fallback reads
+`solo · your Mac (server unreachable)` (`LocalOrigin: "takeover"` vs
 `"fallback"`). Under `solo` the startup memory-fit check also stops
 redirecting to the other node — it warns about a tight fit but honors the
 pin, since silently serving from the m1 would defeat the point.
@@ -322,7 +328,7 @@ Two corrections layered on the time-share policy (both in
   size against the target node's estimated wired ceiling
   (`fitVerdict`, ~72% of RAM with mlx-lm's 90% warning margin — one shared
   definition also used by the `/model` list's fit column and the `/model`
-  switch pre-flight) and serves from the other Mac instead if it can't
+  switch pre-flight) and serves from the other node instead if it can't
   wire, or suggests `/mode cluster` if neither can alone.
 - **Shard crediting** — a sharded session works both Macs equally, so its
   active time is credited half to each node's history rather than lumped
@@ -340,7 +346,7 @@ the CLI. Three internal modes (`Mode` in `cluster.ts`):
   again *is* the restoration, and the session re-attaches as shared infra
   rather than claiming ownership.
 - **`local`** (shown as **solo** in the UI) — whole model served by a
-  process this CLI spawned on this Mac. Reached three ways, distinguished
+  process this CLI spawned on your Mac. Reached three ways, distinguished
   by `localOrigin`: an emergency `"fallback"` (server unreachable at
   connect), or a deliberate `"takeover"` (wear-leveling turn, or the user
   typing `/mode solo`).
@@ -410,7 +416,7 @@ Two differences from an `mlx_lm.server` session, both benign:
 Sharding (`/mode cluster`) does not apply: tensor parallelism is an
 `mlx_lm.server` + `mlx.launch` feature, and Ollama manages its own runtime.
 Worth knowing: Ollama's `-mlx` builds ship a speculative-decoding draft
-model, which is why they can generate faster than this Mac's memory
+model, which is why they can generate faster than your Mac's memory
 bandwidth would allow for a dense model of that size.
 
 ### `/model` switching (`src/models/models.ts`, `src/models/switchModel.ts`)
@@ -488,7 +494,7 @@ peer's) is bound to a local network interface; if the bridge is down and
 neither is, it falls back to assuming the peer (the CLI's usual dev-Mac
 convention). Whichever node resolves as "self" also gets a loopback retry
 (`127.0.0.1:<port>`) if the bridge-IP fetch fails, so solo/fallback
-sessions still show this Mac's own memory pressure without the bridge.
+sessions still show your Mac's own memory pressure without the bridge.
 `combineStats()` reduces both nodes' snapshots into one figure (summed RAM,
 averaged CPU%, max of each temperature) for `/stats`'s "combined" view;
 `/stats` toggles to "split" for the same data shown per-node. Status-panel

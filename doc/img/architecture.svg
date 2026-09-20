@@ -1,7 +1,7 @@
 <svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-title arch-desc"
      font-family="'Geist', -apple-system, BlinkMacSystemFont, sans-serif">
   <title id="arch-title">mac-mlx-cluster architecture</title>
-  <desc id="arch-desc">You talk to mlx-cluster or mlxctl. mlx-cluster routes to one of three serving modes — server (the M1's always-on mlx_lm.server LaunchAgent), solo (a local spawn on this Mac), or cluster (both Macs, tensor-parallel over mlx.launch) — all three and mlxctl read the same Hugging Face cache, and macmon feeds live stats back into mlx-cluster every 2 seconds.</desc>
+  <desc id="arch-desc">You talk to mlx-cluster or mlxctl. mlx-cluster routes to one of three serving modes — server (the server Mac's always-on mlx_lm.server LaunchAgent), solo (a local spawn on your Mac), or cluster (both Macs, tensor-parallel over mlx.launch) — all three and mlxctl read the same Hugging Face cache, and macmon feeds live stats back into mlx-cluster every 2 seconds.</desc>
 
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -62,13 +62,13 @@
   <!-- /mode server -->
   <rect x="500" y="130" width="240" height="64" rx="8" fill="#18181b" stroke="rgba(240,240,242,0.30)" stroke-width="1"/>
   <text x="514" y="150" fill="#e8813a" font-size="10" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace">/mode server</text>
-  <text x="514" y="167" fill="#e6e6e8" font-size="11" font-weight="600">m1 · mlx_lm.server</text>
+  <text x="514" y="167" fill="#e6e6e8" font-size="11" font-weight="600">server Mac · mlx_lm.server</text>
   <text x="514" y="181" fill="#9a9a9e" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">LaunchAgent · always-on · default</text>
 
   <!-- /mode solo -->
   <rect x="500" y="230" width="240" height="56" rx="8" fill="#18181b" stroke="rgba(240,240,242,0.30)" stroke-width="1"/>
   <text x="514" y="250" fill="#e8813a" font-size="10" font-weight="600" font-family="'Geist Mono', ui-monospace, monospace">/mode solo</text>
-  <text x="514" y="267" fill="#e6e6e8" font-size="11" font-weight="600">this Mac · local spawn</text>
+  <text x="514" y="267" fill="#e6e6e8" font-size="11" font-weight="600">your Mac · local spawn</text>
 
   <!-- /mode cluster -->
   <rect x="500" y="322" width="240" height="72" rx="8" fill="#18181b" stroke="rgba(240,240,242,0.30)" stroke-width="1"/>

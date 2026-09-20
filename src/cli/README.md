@@ -11,7 +11,7 @@ Terminal chat client + lifecycle manager for the two-Mac MLX cluster
 ## What it does
 
 - Attaches to (or bootstraps) the server Mac's `mlx_lm.server` LaunchAgent;
-  falls back to a locally-spawned server if the other Mac is unreachable.
+  falls back to a locally-spawned server if the server Mac is unreachable.
 - Multi-turn streaming chat, markdown-rendered, with `/copy` to clipboard.
 - Switches models (`/model`) and serving modes (`/mode solo | server |
   cluster`) mid-session — including tensor-parallel sharding across both
