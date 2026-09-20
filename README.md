@@ -18,10 +18,6 @@ one Mac, or pooled across two for models neither can hold alone.
   <a href="#quick-start">Run it</a>
 </p>
 
-<img src="./doc/img/cli.svg" alt="mlx-cluster running solo on one Mac: live memory bars, the loaded model, a reply, and its token usage" width="760">
-
-<sub>A real session — live memory/CPU/GPU/temp, the model that's loaded, and per-reply token accounting.</sub>
-
 </div>
 
 ---
