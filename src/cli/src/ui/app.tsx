@@ -444,9 +444,15 @@ export function App({
     if (listRes.ok) {
       const resolved = resolveModel(arg, listRes.models);
       if (resolved.kind === "none") {
+        // "name:tag" is Ollama's naming, not an HF repo id — and Ollama's
+        // store is invisible to the HF cache listing, so a miss here is
+        // usually a mode mistake rather than a missing download.
+        const looksOllama = session.mode !== "ollama" && /^[^/\s]+:[^/\s]+$/.test(arg);
         dispatch({
           type: "error",
-          message: `no cached model on ${cacheNode} matches "${arg}" — /model to list, or download it there first`,
+          message: looksOllama
+            ? `no cached model on ${cacheNode} matches "${arg}" — that looks like an ollama model; try /mode ollama ${arg}`
+            : `no cached model on ${cacheNode} matches "${arg}" — /model to list, or download it there first`,
         });
         return;
       }
