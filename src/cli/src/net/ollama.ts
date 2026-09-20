@@ -86,39 +86,51 @@ export async function ensureOllama(
 }
 
 /**
- * Only stops a daemon this session started (see ensureOllama). Unloads the
- * model first via `ollama stop` — SIGKILLing `ollama serve` outright never
- * gives it a chance to reap its `ollama runner` child, which then survives
- * as an orphan under launchd, still holding the model in RAM with no daemon
- * left to unload it through. `ollama stop` blocks until the runner exits, so
- * by the time we touch the daemon there's nothing left for it to orphan.
+ * Unloads the model via `ollama stop`, and stops the daemon too if THIS
+ * session started it (see ensureOllama). These are two separate decisions:
+ * unloading the model is always ours to do — it's what this session put in
+ * RAM, whether or not we attached to a daemon someone else started — but the
+ * daemon itself is only ours to kill when we spawned it (Ollama is usually
+ * long-running shared infrastructure; killing an attached one would take
+ * down the user's other clients). Without the unload, a CLI attached to an
+ * already-running Ollama (the common case once it's set up as background
+ * infra) leaves the model loaded until Ollama's own idle timeout — the whole
+ * reason to quit doesn't free the memory.
+ *
+ * `ollama stop` also matters when we DO own the daemon: SIGKILLing
+ * `ollama serve` outright never gives it a chance to reap its `ollama
+ * runner` child, which then survives as an orphan under launchd, still
+ * holding the model in RAM with no daemon left to unload it through.
+ * `ollama stop` blocks until the runner exits, so by the time we touch the
+ * daemon there's nothing left for it to orphan.
  */
 export async function stopOllama(handle: OllamaHandle | null, model: string): Promise<void> {
-  if (!handle?.proc || handle.proc.exitCode !== null) return;
+  if (!handle) return;
   try {
     await Bun.spawn(["ollama", "stop", model], { stdout: "ignore", stderr: "ignore" }).exited;
   } catch {
     // best-effort — fall through and stop the daemon regardless
   }
-  if (handle.proc.exitCode === null) {
-    handle.proc.kill("SIGTERM");
-    const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5000));
-    const race = await Promise.race([handle.proc.exited.then(() => "exited" as const), timeout]);
-    if (race === "timeout" && handle.proc.exitCode === null) handle.proc.kill("SIGKILL");
-  }
+  if (!handle.proc || handle.proc.exitCode !== null) return;
+  handle.proc.kill("SIGTERM");
+  const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5000));
+  const race = await Promise.race([handle.proc.exited.then(() => "exited" as const), timeout]);
+  if (race === "timeout" && handle.proc.exitCode === null) handle.proc.kill("SIGKILL");
 }
 
 /**
  * Synchronous, best-effort teardown for process 'exit' / uncaughtException
  * handlers, where there's no time to await `ollama stop` — SIGTERM the
- * daemon (best chance it reaps its own runner on the way down) and sweep for
- * an orphaned runner by model name as a belt-and-braces fallback, since a
- * SIGKILL'd daemon never gets the chance to clean up after itself.
+ * daemon if we own it (best chance it reaps its own runner on the way down),
+ * and sweep for an orphaned runner by model name regardless of ownership, as
+ * a belt-and-braces fallback: a SIGKILL'd daemon never gets the chance to
+ * clean up after itself, and there's no time here to ask an attached daemon
+ * to unload gracefully either.
  */
 export function stopOllamaSync(handle: OllamaHandle | null, model: string): void {
-  if (!handle?.proc || handle.proc.exitCode !== null) return;
+  if (!handle) return;
   try {
-    handle.proc.kill("SIGTERM");
+    if (handle.proc && handle.proc.exitCode === null) handle.proc.kill("SIGTERM");
     Bun.spawnSync(["pkill", "-f", `ollama runner .*--model ${model}`], { stdout: "ignore", stderr: "ignore" });
   } catch {
     // best-effort only — never let cleanup crash the exit path
