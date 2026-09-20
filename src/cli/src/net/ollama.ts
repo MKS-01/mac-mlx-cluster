@@ -85,8 +85,42 @@ export async function ensureOllama(
   return { base, proc };
 }
 
-/** Only stops a daemon this session started (see ensureOllama). */
-export function stopOllama(handle: OllamaHandle | null): void {
+/**
+ * Only stops a daemon this session started (see ensureOllama). Unloads the
+ * model first via `ollama stop` — SIGKILLing `ollama serve` outright never
+ * gives it a chance to reap its `ollama runner` child, which then survives
+ * as an orphan under launchd, still holding the model in RAM with no daemon
+ * left to unload it through. `ollama stop` blocks until the runner exits, so
+ * by the time we touch the daemon there's nothing left for it to orphan.
+ */
+export async function stopOllama(handle: OllamaHandle | null, model: string): Promise<void> {
   if (!handle?.proc || handle.proc.exitCode !== null) return;
-  handle.proc.kill("SIGKILL");
+  try {
+    await Bun.spawn(["ollama", "stop", model], { stdout: "ignore", stderr: "ignore" }).exited;
+  } catch {
+    // best-effort — fall through and stop the daemon regardless
+  }
+  if (handle.proc.exitCode === null) {
+    handle.proc.kill("SIGTERM");
+    const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5000));
+    const race = await Promise.race([handle.proc.exited.then(() => "exited" as const), timeout]);
+    if (race === "timeout" && handle.proc.exitCode === null) handle.proc.kill("SIGKILL");
+  }
+}
+
+/**
+ * Synchronous, best-effort teardown for process 'exit' / uncaughtException
+ * handlers, where there's no time to await `ollama stop` — SIGTERM the
+ * daemon (best chance it reaps its own runner on the way down) and sweep for
+ * an orphaned runner by model name as a belt-and-braces fallback, since a
+ * SIGKILL'd daemon never gets the chance to clean up after itself.
+ */
+export function stopOllamaSync(handle: OllamaHandle | null, model: string): void {
+  if (!handle?.proc || handle.proc.exitCode !== null) return;
+  try {
+    handle.proc.kill("SIGTERM");
+    Bun.spawnSync(["pkill", "-f", `ollama runner .*--model ${model}`], { stdout: "ignore", stderr: "ignore" });
+  } catch {
+    // best-effort only — never let cleanup crash the exit path
+  }
 }

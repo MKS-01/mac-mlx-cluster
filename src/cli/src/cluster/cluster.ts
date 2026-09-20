@@ -14,7 +14,7 @@ import {
   type DistributedServerHandle,
 } from "../net/distributed";
 import { checkCachedOnBothNodes } from "../models/models";
-import { ensureOllama, stopOllama, listOllamaModels, OllamaError, type OllamaHandle } from "../net/ollama";
+import { ensureOllama, stopOllama, stopOllamaSync, listOllamaModels, OllamaError, type OllamaHandle } from "../net/ollama";
 import {
   sshReachable,
   bootstrapRemote,
@@ -337,7 +337,7 @@ export async function startOllama(
 
   const available = await listOllamaModels(host, port).catch(() => [] as { repo: string }[]);
   if (available.length && !available.some((m) => m.repo === model)) {
-    stopOllama(handle); // only stops a daemon we just started
+    await stopOllama(handle, model); // only stops a daemon we just started
     throw new OllamaError(
       `ollama has no model "${model}" — pull it first (\`ollama pull ${model}\`). ` +
         `Available: ${available.map((m) => m.repo).join(", ")}`,
@@ -370,7 +370,7 @@ export async function startOllama(
 export async function stopCurrentSession(config: ClusterConfig, session: Session): Promise<void> {
   if (session.mode === "local") stopLocalServer(session.localHandle);
   else if (session.mode === "shard") await stopDistributedServer(session.distributedHandle, config);
-  else if (session.mode === "ollama") stopOllama(session.ollamaHandle);
+  else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model);
   // "cluster": nothing to stop — the LaunchAgent keeps running until the
   // next start* boots it out (or quit, if this session started it).
 }
@@ -380,7 +380,7 @@ export async function disconnect(config: ClusterConfig, session: Session | null)
   if (!session) return;
   if (session.mode === "local" || session.mode === "shard" || session.mode === "ollama") {
     if (session.mode === "local") stopLocalServer(session.localHandle);
-    else if (session.mode === "ollama") stopOllama(session.ollamaHandle);
+    else if (session.mode === "ollama") await stopOllama(session.ollamaHandle, session.model);
     else await stopDistributedServer(session.distributedHandle, config);
     if (session.tookOverFromServer) {
       const result = await bootstrapRemote(
@@ -411,7 +411,7 @@ export function disconnectSync(config: ClusterConfig, session: Session | null): 
   if (!session) return;
   if (session.mode === "local" || session.mode === "shard" || session.mode === "ollama") {
     if (session.mode === "local") stopLocalServer(session.localHandle);
-    else if (session.mode === "ollama") stopOllama(session.ollamaHandle);
+    else if (session.mode === "ollama") stopOllamaSync(session.ollamaHandle, session.model);
     else stopDistributedServerSync(session.distributedHandle, config);
     if (session.tookOverFromServer) {
       bootstrapRemoteSync(config.server.sshUser, config.server.ip, config.server.plistPath, config.server.serviceLabel);
