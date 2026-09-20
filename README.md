@@ -37,19 +37,22 @@ was pointing a coding agent at them, built straight into the chat client
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) was run for real,
 failures included — that's where the gotchas sections come from.
 
-```
-   ┌──────────────────────┐                          ┌──────────────────────┐
-   │   M5 Pro · 48 GB     │      Thunderbolt 4       │   M1 Pro · 32 GB     │
-   │   dev machine        │◀────────────────────────▶│   always-on server   │
-   │   mlx-cluster        │      10.0.0.0/24         │   mlx_lm.server      │
-   └──────────────────────┘                          └──────────────────────┘
+## How it works
 
-   solo     one Mac serves the whole model — the other stays 100% free
-            (set defaultMode: "solo" to start here without probing the server)
-   server   the M1 serves over the bridge — chat from anywhere on it
-   cluster  one model tensor-sharded across BOTH Macs (/mode cluster)
-            → 80 GB of combined unified memory for models neither can hold alone
-```
+<p align="center">
+  <img src="./doc/img/architecture.svg" alt="you talk to mlx-cluster or mlxctl; mlx-cluster routes to /mode server (the M1's always-on mlx_lm.server LaunchAgent), /mode solo (a local spawn on this Mac), or /mode cluster (both Macs, tensor-parallel over mlx.launch); all three and mlxctl read the same HF cache; macmon feeds live stats back into mlx-cluster every 2 seconds" width="720">
+</p>
+
+One CLI, three ways to serve the same model, one shared cache underneath.
+`/mode` picks **server** (the M1 Pro's always-on `mlx_lm.server`, the
+default), **solo** (this Mac serves itself, the other stays 100% free — set
+`defaultMode: "solo"` to start here without even probing the server), or
+**cluster** (`/mode cluster`, both Macs tensor-sharded over Thunderbolt for
+the ~80 GB of combined unified memory models neither Mac can hold alone).
+`mlxctl` manages the same on-disk cache from either side. This is the
+five-minute picture — [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) has the
+full flowchart, the two serving patterns, measured throughput, and *why*
+each decision is shaped the way it is.
 
 <details>
 <summary>Does this work with more than two Macs?</summary>
@@ -68,7 +71,7 @@ Fork it and adapt as needed if that's your use case.
 ## What's in the box
 
 **`mlx-cluster`** — terminal chat client *and* cluster operator, one session
-for everything:
+for everything ([full command reference](./src/cli/README.md)):
 
 | | |
 |---|---|
@@ -87,7 +90,7 @@ the server Mac or not.
 
 **Verified guides** — single-Mac quickstart → Thunderbolt bridge → SSH mesh →
 distributed smoke test → always-on LaunchAgent server, each step actually
-run on the hardware in the diagram above.
+run on a real M1 Pro / M5 Pro pair.
 
 Only the cluster pieces need two Macs — everything else works standalone on a
 single Apple Silicon machine. And zero cloud, ever: every request stays on
@@ -154,7 +157,7 @@ That's a local LLM, chatting, on one Mac. From there, the two tools in the box:
 # mlxctl — model-cache manager (then: mlxctl --help)
 ln -s "$PWD/src/tools/mlxctl" ~/.venvs/mlx/bin/mlxctl
 
-# mlx-cluster — the chat client in the screenshot (needs https://bun.sh)
+# mlx-cluster — the chat client (needs https://bun.sh)
 cd src/cli && ./install.sh                   # deps + standalone binary → ~/.local/bin
 mlx-cluster                                  # solo mode — works fine on one Mac
 ```
@@ -175,19 +178,6 @@ Re-run it after pulling new changes. (`bun run setup` is the same script.)
 When you're ready for the second Mac, the whole cluster build — bridge IPs
 through the always-on server — lives in
 [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md).
-
-## Documentation
-
-- [`doc/CLUSTER_SETUP.md`](./doc/CLUSTER_SETUP.md) — the full verified
-  walkthrough: single Mac zero-to-chatting, then bridge IPs, SSH mesh,
-  hostfile, smoke test, and the always-on LaunchAgent server — ends with a
-  go-to command cheatsheet grouped by task.
-- [`doc/ARCHITECTURE.md`](./doc/ARCHITECTURE.md) — the system-level reference:
-  a full-system flowchart, topology, data flow, and *why* the design is shaped
-  this way (also where the Python-side dev/lint commands live).
-- [`src/cli/README.md`](./src/cli/README.md) — `mlx-cluster`'s own setup and
-  command reference for daily driving: `/mode`, `/model`, `/agent`, `/split`,
-  and the rest.
 
 ## License
 
