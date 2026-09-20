@@ -11,6 +11,7 @@ one Mac, or pooled across two for models neither can hold alone.
 ![Platform: Apple Silicon](https://img.shields.io/badge/Platform-Apple%20Silicon-orange?style=flat-square&labelColor=000000&logo=apple&logoColor=white)
 ![Python: 3.12+](https://img.shields.io/badge/Python-3.12%2B-orange?style=flat-square&labelColor=000000&logo=python&logoColor=white)
 [![Powered by MLX](https://img.shields.io/badge/Powered%20by-MLX-orange?style=flat-square&labelColor=000000)](https://github.com/ml-explore/mlx)
+[![vs Ollama: ~14% faster](https://img.shields.io/badge/vs%20Ollama-~14%25%20faster-orange?style=flat-square&labelColor=000000)](#what-to-expect)
 
 <p>
   <a href="./doc/ARCHITECTURE.md">How it fits together</a> &nbsp;·&nbsp;
