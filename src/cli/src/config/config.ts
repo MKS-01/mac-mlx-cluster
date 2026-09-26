@@ -15,39 +15,22 @@ export interface ServerNodeConfig extends NodeConfig {
   serviceLabel: string; // e.g. com.mlx-server
 }
 
-// How a session starts when nothing overrides it:
-//   "server" — Pattern A: attach to (or bootstrap) the server node's
-//              LaunchAgent, falling back to this Mac only if it's unreachable.
-//   "solo"   — serve on this Mac from the start, without probing the server
-//              node first. Right default for a one-Mac setup, or when the
-//              other Mac is usually off/asleep/unplugged.
+// "server": Pattern A, attach/bootstrap the server node, falling back to this Mac if unreachable.
+// "solo": serve on this Mac from the start, skipping the server-node probe.
 export type DefaultMode = "server" | "solo";
 
 export interface ClusterConfig {
-  // The Mac that runs mlx_lm.server as an always-on LaunchAgent (Pattern A).
-  server: ServerNodeConfig;
-  // The other Mac — used only for its stats (macmon), never SSH'd for control.
-  peer: NodeConfig;
-  // Startup mode. "solo" also skips the wear-leveling turn check, which only
-  // decides *which* Mac serves — already answered when solo is pinned.
+  server: ServerNodeConfig; // runs mlx_lm.server as an always-on LaunchAgent (Pattern A)
+  peer: NodeConfig; // used only for stats, never SSH'd for control
   defaultMode: DefaultMode;
   defaultModel: string;
-  // Model the /agent coding loop uses, independent of the chat model — sent in
-  // each agent request so mlx_lm.server loads it from the shared cache. A MoE
-  // (few active params/token) so the agent's many tool rounds stay light on
-  // the GPU vs. a dense model of similar quality.
+  // Model for /agent's coding loop, independent of the chat model; a MoE so tool rounds stay light.
   agentModel: string;
-  localApiPort: number; // port used when this CLI spawns mlx_lm.server locally (fallback mode)
+  localApiPort: number; // port for a locally spawned mlx_lm.server (fallback mode)
   venvPath: string; // e.g. ~/.venvs/mlx
-  // /mode ollama — serve through a local Ollama daemon instead of this repo's
-  // venv. Lets Ollama-pulled `-mlx` models be used without downloading a
-  // second copy into the HF cache (see src/net/ollama.ts).
-  ollama: { host: string; port: number };
-  // Pattern B (/mode cluster) — tensor-parallel sharding across both Macs.
+  ollama: { host: string; port: number }; // /mode ollama, reuses Ollama's own model store
   distributed: {
-    // mlx.launch hostfile; rank 0's bind IP is read from this file at launch
-    // time (first entry = rank 0) rather than duplicated here.
-    hostfile: string;
+    hostfile: string; // mlx.launch hostfile; rank 0's bind IP is read from it, not duplicated here
   };
 }
 
@@ -82,12 +65,8 @@ export const DEFAULT_CONFIG: ClusterConfig = {
 
 export class ConfigError extends Error {}
 
-// Every one of these fields ends up inside an SSH argv or a remote shell
-// command string (ssh.ts, distributed.ts) — validated once here so a typo'd
-// or hostile config.json can't smuggle a shell/SSH-option injection (e.g. a
-// sshUser starting with "-" being parsed as an ssh flag) instead of just
-// failing to connect. Shapes are deliberately permissive (real usernames,
-// IPs/hostnames, launchd labels, and unix paths all fit), not a full spec.
+// These fields end up in an SSH argv or remote shell command string, so validate here to block
+// shell/SSH-option injection (e.g. sshUser starting with "-"). Deliberately permissive, not a full spec.
 const USER_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/;
 const HOST_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_.:-]*$/; // IPv4, hostname, or bracketed-free IPv6
 const LABEL_RE = /^[a-zA-Z0-9_.-]+$/; // launchd reverse-DNS-style service label
@@ -119,13 +98,8 @@ function validateConfig(c: ClusterConfig): ClusterConfig {
   return c;
 }
 
-/**
- * Loads ~/.mlx/cluster-cli.json, falling back to DEFAULT_CONFIG for any
- * missing top-level keys. Throws ConfigError (not a crash) on malformed JSON
- * or a field shape that can't be safely used in an SSH/shell command, so the
- * caller can show a clear message instead of an unreadable stack trace (or
- * worse, silently running an attacker-controlled string).
- */
+// Falls back to DEFAULT_CONFIG for missing keys; throws ConfigError on malformed JSON or an
+// unsafe field shape, rather than a stack trace or silently running an attacker-controlled string.
 export function loadConfig(): ClusterConfig {
   if (!existsSync(CONFIG_PATH)) return DEFAULT_CONFIG;
   let raw: unknown;

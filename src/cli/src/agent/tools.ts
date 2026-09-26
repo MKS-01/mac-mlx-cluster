@@ -1,9 +1,5 @@
-// The agent's tools: read/list/write files and run bash, all confined to one
-// working directory (the root passed to /agent). Everything here is pure
-// logic + filesystem/process I/O — no UI. The loop (agentLoop.ts) decides
-// when to run a tool and whether to ask the user first (writeFile and bash
-// are marked needsConfirm); this module just does the work and returns a
-// string result for the model to read.
+// The agent's tools: read/list/write files and run bash, all confined to the /agent root.
+// Pure logic + I/O, no UI — agentLoop.ts decides when to run one and whether to confirm first.
 
 import { resolve, relative, isAbsolute, join, dirname } from "node:path";
 import { existsSync, realpathSync, mkdirSync } from "node:fs";
@@ -15,20 +11,16 @@ export interface ToolContext {
 
 export interface AgentTool {
   spec: ToolSpec;
-  // A one-line human summary of a specific call, for the transcript and the
-  // confirmation prompt (e.g. `write_file src/index.ts (1.2 KB)`).
+  // One-line human summary for the transcript/confirmation prompt, e.g. `write_file x.ts (1.2 KB)`.
   summarize: (args: Record<string, unknown>) => string;
-  // Whether this call must be confirmed by the user before it runs.
   needsConfirm: boolean;
   run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<string>;
 }
 
 export class ToolError extends Error {}
 
-// Resolve a model-supplied path against the root and refuse anything that
-// escapes it (../, absolute paths outside root, symlink-style tricks). The
-// model runs on the same machine as our files, so this boundary is the only
-// thing between "edit this project" and "edit anything the user can".
+// Refuses anything that escapes root (../, absolute paths, symlink tricks) — the only
+// boundary between "edit this project" and "edit anything the user can".
 function confine(root: string, p: unknown): string {
   if (typeof p !== "string" || p.trim() === "") {
     throw new ToolError("missing or empty 'path'");
@@ -38,13 +30,11 @@ function confine(root: string, p: unknown): string {
     const rel = relative(base, target);
     return rel !== "" && (rel.startsWith("..") || isAbsolute(rel));
   };
-  // Textual check catches plain ../ and absolute-path escapes…
   if (outside(root, abs)) {
     throw new ToolError(`path '${p}' is outside the agent's working directory`);
   }
-  // …and the realpath check catches a symlink inside root that points outside
-  // it. For not-yet-created paths (write_file), the nearest existing ancestor
-  // is what a write would actually traverse, so realpath that.
+  // realpath check catches a symlink inside root pointing outside it; for not-yet-created
+  // paths (write_file), realpath the nearest existing ancestor instead.
   let existing = abs;
   while (!existsSync(existing)) existing = dirname(existing); // terminates: "/" exists
   if (outside(realpathSync(root), realpathSync(existing))) {
@@ -131,8 +121,7 @@ export const TOOLS: AgentTool[] = [
     run: async (a, ctx) => {
       const abs = confine(ctx.root, a.path);
       const content = typeof a.content === "string" ? a.content : "";
-      // mkdir -p the parent so the model can create nested files in one call.
-      mkdirSync(dirname(abs), { recursive: true });
+      mkdirSync(dirname(abs), { recursive: true }); // so nested files can be created in one call
       await Bun.write(abs, content);
       return `wrote ${humanBytes(content.length)} to ${a.path}`;
     },
@@ -155,9 +144,7 @@ export const TOOLS: AgentTool[] = [
     run: async (a, ctx) => {
       const command = a.command;
       if (typeof command !== "string" || !command.trim()) throw new ToolError("missing 'command'");
-      // Async spawn (spawnSync would freeze the Ink UI — and Esc with it — for
-      // the whole run) with a hard timeout so a hung command can't wedge the
-      // agent loop; nothing here is interactive, so stdin is closed.
+      // Async (spawnSync would freeze the Ink UI, and Esc with it) with a hard timeout.
       const proc = Bun.spawn(["bash", "-lc", command], {
         cwd: ctx.root,
         stdin: "ignore",

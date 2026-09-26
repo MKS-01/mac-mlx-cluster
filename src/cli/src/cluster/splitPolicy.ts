@@ -1,12 +1,6 @@
-// Wear-leveling policy: which Mac should host the model this session, given
-// a target time-share (e.g. 60/40 server/peer) and how the actual share has
-// looked so far. "server" = config.server (the M1, normally always-on via
-// LaunchAgent); "peer" = config.peer (the M5, normally the dev machine that
-// runs this CLI) serving via local-fallback instead.
-//
-// The metric is wall-clock minutes each node was the CLI's active session
-// target — not true GPU-cycle wear, but a reasonable proxy: the model only
-// draws real inference load while something is actually talking to it.
+// Wear-leveling policy: which Mac should host the model, given a target time-share (e.g.
+// 60/40 server/peer) and the actual share so far. Metric is wall-clock active-session
+// minutes per node — a proxy for GPU load, not true cycle wear.
 
 export interface SplitTarget {
   server: number; // percent, server + peer === 100
@@ -21,12 +15,8 @@ export interface SplitHistory {
 export const DEFAULT_SPLIT: SplitTarget = { server: 50, peer: 50 };
 export const EMPTY_HISTORY: SplitHistory = { serverMinutes: 0, peerMinutes: 0 };
 
-// Host-load thresholds (fractions, matching macmon's cpu_usage_pct /
-// gpu_usage[1]), shared by every consumer that asks "is that Mac busy with
-// something else?": the startup wear-leveling check (index.tsx) and the
-// external-activity indicator in the status panel (app.tsx). One definition
-// so the two checks can never drift apart. Below IDLE_* a node is clearly
-// free; at/above BUSY_* something else is working it.
+// Host-load thresholds shared by every "is that Mac busy?" check (index.tsx, app.tsx), so
+// they can't drift apart. Below IDLE_* a node is free; at/above BUSY_* something else is on it.
 export const IDLE_CPU_PCT = 0.15;
 export const IDLE_GPU_PCT = 0.1;
 export const BUSY_CPU_PCT = 0.35;

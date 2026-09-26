@@ -20,9 +20,7 @@ export function InputBar({
   };
 
   return (
-    // Round corners render as ╭╮ (how round they look is up to the terminal
-    // font). Border tints blue while a reply is streaming so the box reads
-    // as busy without extra text.
+    // Border tints blue while a reply is streaming, so the box reads as busy without extra text.
     <Box borderStyle="round" borderColor={disabled ? BLUE : DIM} paddingX={1}>
       <Text color={BLUE}>{"❯ "}</Text>
       {disabled ? (
@@ -31,12 +29,8 @@ export function InputBar({
         <TextInput
           value={value}
           onChange={(v) => {
-            // Ink batches an input chunk with no escape byte into a single
-            // event (see ink/build/input-parser.js) — if Enter lands in the
-            // same read() as other keystrokes (fast typing, or a literal
-            // paste, which is common when dropping a prompt into a chat
-            // CLI), key.return never fires and the \r/\n shows up here as a
-            // literal character instead. Treat it as submit ourselves.
+            // A fast-typed Enter or pasted \r/\n can land in the same Ink input batch as other
+            // keystrokes, so key.return never fires — catch the literal character instead.
             if (/[\r\n]/.test(v)) submit(v.replace(/[\r\n]+/g, " ").trim());
             else setValue(v);
           }}

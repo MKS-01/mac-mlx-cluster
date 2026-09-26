@@ -43,13 +43,10 @@ interface State {
   statsView: "combined" | "split";
   splitTarget: SplitTarget;
   nodes: NodeStats[];
-  // Another client is generating on the serving node while this CLI is idle
-  // (e.g. another mlx-cluster or agent session) — see the stats poll below.
+  // Another client generating on the serving node while this CLI is idle.
   externalBusy: boolean;
   quitting: boolean;
-  // Agentic coding mode (/agent): the working directory the agent is
-  // confined to, whether its loop is running,
-  // and a pending write/bash approval it's blocked on. Null root = plain chat.
+  // /agent mode: working dir (null = plain chat), loop running, pending approval.
   agentRoot: string | null;
   agentBusy: boolean;
   pendingConfirm: string | null;
@@ -149,12 +146,9 @@ export function App({
   config: ClusterConfig;
   session: Session;
   onQuit: () => Promise<void>;
-  // Reports wall-clock ms spent actually generating (not idle between
-  // messages) after each exchange, so index.tsx can credit it to whichever
-  // node served this session for the wear-leveling split (splitPolicy.ts).
+  // Wall-clock ms spent generating, credited to the serving node for the wear-leveling split.
   onActiveTime?: (deltaMs: number) => void;
-  // Fires whenever a /mode or /model switch replaces the session, so
-  // index.tsx's signal/exit/crash handlers always tear down the current one.
+  // Fires on /mode or /model switch so index.tsx tears down the current session, not the startup one.
   onSessionChange?: (session: Session) => void;
 }) {
   const { exit } = useApp();
@@ -184,12 +178,9 @@ export function App({
   const stateRef = useRef(state);
   stateRef.current = state;
   const abortRef = useRef<AbortController | null>(null);
-  // The running API message list for the current agent session (system +
-  // user + assistant/tool turns), kept across messages so a follow-up
-  // continues the same context. Reset when agent mode is (re)entered.
+  // Running agent message list, kept across messages; reset on (re)entering agent mode.
   const agentHistoryRef = useRef<ChatMessage[]>([]);
-  // Resolver for the in-flight write/bash approval — set when the loop calls
-  // confirm(), fulfilled by the user's y/N in the input bar (or Esc = no).
+  // Resolver for an in-flight write/bash approval, fulfilled by y/N in the input bar.
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
 
   const resolveConfirm = (ok: boolean) => {
@@ -199,16 +190,10 @@ export function App({
     resolve?.(ok);
   };
 
-  // Consecutive stats ticks where the serving node's GPU looked busy while
-  // this CLI was idle. Requiring several in a row (~10s at the 2s tick)
-  // filters spikes rather than reacting to one; a ref because it must
-  // survive re-renders without causing any.
+  // Consecutive idle ticks with busy GPU, to filter spikes rather than react to one.
   const externalBusyTicks = useRef(0);
 
-  // Stats polling — both nodes independently. The node this CLI runs on
-  // falls back to loopback if its bridge IP doesn't answer, so a solo
-  // (bridge-less) session still shows this Mac's memory instead of two
-  // "unavailable" rows.
+  // Stats polling for both nodes; falls back to loopback for this Mac if its bridge IP is down.
   useEffect(() => {
     const selfId = selfNodeId(config.server, config.peer);
     let cancelled = false;
@@ -218,20 +203,13 @@ export function App({
         fetchNodeStats(config.peer.id, config.peer.ip, config.peer.macmonPort, config.peer.id === selfId),
       ]);
       if (cancelled) return;
-      // External-client visibility: GPU load on whichever node(s) serve this
-      // session while we're idle means some other client is generating on
-      // the shared server. Only sample during idle gaps so our own inference
-      // is never mistaken for it.
+      // Only sample GPU load during our own idle gaps, so our inference isn't mistaken for another client.
       const st = stateRef.current;
       const nodes = [serverStats, peerStats];
       const servingGpu =
         st.session.mode === "shard"
           ? Math.max(...nodes.map((n) => n.snapshot?.gpu_usage[1] ?? 0))
           : (st.session.mode === "cluster" ? serverStats : peerStats).snapshot?.gpu_usage[1] ?? 0;
-      // "another client" = GPU busy while *we* are idle. Our own load counts
-      // as busy whether it's a chat reply (busy), an agent turn (agentBusy),
-      // or a mode switch (switching) — otherwise the agent's own inference
-      // gets mislabeled as some other client.
       if (!st.busy && !st.agentBusy && !st.switching && servingGpu >= BUSY_GPU_PCT) externalBusyTicks.current += 1;
       else externalBusyTicks.current = 0;
       dispatch({ type: "stats", nodes, externalBusy: externalBusyTicks.current >= 5 });
@@ -244,9 +222,7 @@ export function App({
     };
   }, []);
 
-  // Keep index.tsx's exit/signal cleanup pointed at the live session — /mode
-  // and /model switches replace it, and tearing down the startup session
-  // instead would orphan whatever the switch spawned.
+  // Keep index.tsx's exit/signal cleanup pointed at the live session, not the startup one.
   useEffect(() => {
     onSessionChange?.(state.session);
   }, [state.session]);
@@ -255,9 +231,7 @@ export function App({
     if (stateRef.current.quitting) return; // a second Ctrl+C/q mid-teardown must not re-enter
     dispatch({ type: "quitting" });
     abortRef.current?.abort();
-    // onQuit may need to SSH bootout a server this session started (see
-    // cluster.ts) — that can take a few seconds, so the "quitting…" spinner
-    // stays up for the real duration instead of a fixed timeout.
+    // onQuit may SSH-bootout a started server, so let it take the real time rather than a fixed timeout.
     onQuit().finally(() => {
       exit();
       process.exit(0);
@@ -265,18 +239,15 @@ export function App({
   };
 
   useInput((input, key) => {
-    // Ink's raw mode swallows the SIGINT Ctrl+C would normally raise, and its
-    // built-in exitOnCtrlC just unmounts without teardown — so it's disabled
-    // (index.tsx) and Ctrl+C takes the same graceful quit path as /quit.
+    // Ink's exitOnCtrlC is disabled (index.tsx); route Ctrl+C through the same graceful quit as /quit.
     if (key.ctrl && input === "c") {
-      // Second Ctrl+C while teardown is in flight = force quit (e.g. the SSH
-      // restore is hanging); cleanup already ran as far as it got.
+      // Second Ctrl+C mid-teardown = force quit (e.g. a hanging SSH restore).
       if (stateRef.current.quitting) process.exit(130);
       startQuit();
       return;
     }
     if (!key.escape) return;
-    // Esc while waiting on an approval = decline it (and abort the loop).
+    // Esc during a pending approval = decline it.
     if (state.pendingConfirm !== null) resolveConfirm(false);
     if (state.busy || state.agentBusy) abortRef.current?.abort();
   });
@@ -285,16 +256,12 @@ export function App({
     dispatch({ type: "submitUser", text });
     const controller = new AbortController();
     abortRef.current = controller;
-    // The display history can contain "action" rows from an earlier agent
-    // session — display-only, not a role the server knows — so only real chat
-    // turns go into the request.
+    // "action" rows are display-only (agent history), not a role the server knows.
     const messages: ChatMessage[] = [
       ...stateRef.current.history.filter((m) => m.role === "user" || m.role === "assistant"),
       { role: "user", content: text },
     ];
-    // Wall time of the whole exchange (prompt processing + generation) is
-    // the proxy for actual GPU load this session put on whichever node
-    // served it — idle time waiting for the next message doesn't count.
+    // Wall time of the exchange is the proxy for GPU load credited to the serving node.
     const startedAt = Date.now();
     try {
       let usageLine: string | null = null;
@@ -310,7 +277,7 @@ export function App({
       });
       onActiveTime?.(Date.now() - startedAt);
       dispatch({ type: "done", reply });
-      // After the reply lands, so it reads as a footnote to that turn.
+      // After the reply, so it reads as a footnote to that turn.
       if (usageLine) dispatch({ type: "pushMessage", message: { role: "action", content: usageLine } });
     } catch (err) {
       onActiveTime?.(Date.now() - startedAt);
@@ -325,10 +292,7 @@ export function App({
     }
   };
 
-  // Run one agent task in the current working directory. Plain messages route
-  // here (instead of runChat) whenever agent mode is on. Tool calls, results,
-  // and the model's prose land in the transcript as they happen; write/bash
-  // pause on a y/N prompt through requestConfirm below.
+  // Run one agent task; plain messages route here instead of runChat while agent mode is on.
   const runAgentTask = async (text: string) => {
     const root = stateRef.current.agentRoot;
     if (!root) return;
@@ -360,7 +324,7 @@ export function App({
           else dispatch({ type: "pushMessage", message: { role: "action", content: e.text } });
         },
       });
-      agentHistoryRef.current = messages; // continue this session on the next message
+      agentHistoryRef.current = messages; // continue on the next message
       onActiveTime?.(Date.now() - startedAt);
       dispatch({ type: "notice", text: null });
     } catch (err) {
@@ -371,18 +335,14 @@ export function App({
         dispatch({ type: "error", message: err instanceof Error ? err.message : String(err) });
       }
     } finally {
-      // A cancel mid-approval can leave a dangling resolver; clear it.
+      // Clear a dangling resolver left by a cancel mid-approval.
       if (confirmResolveRef.current) resolveConfirm(false);
       dispatch({ type: "agentBusy", on: false });
       abortRef.current = null;
     }
   };
 
-  // /agent — turn the CLI into a coding agent scoped to a directory. Bare
-  // `/agent` uses the directory the CLI was launched in (the common case, so
-  // no path to type); `/agent <dir>` scopes it elsewhere; `/agent off`
-  // leaves. In agent mode, plain messages become tasks the model works with
-  // read/list/write/bash tools; writes and bash ask first.
+  // /agent [dir] — enter agent mode scoped to a directory (default: cwd); /agent off leaves.
   const handleAgent = (arg: string | undefined) => {
     if (stateRef.current.agentBusy) {
       dispatch({ type: "error", message: "agent is working — Esc to cancel first" });
@@ -397,12 +357,8 @@ export function App({
       dispatch({ type: "exitAgent" });
       return;
     }
-    // Normalize the path arg the way a shell would but the CLI's own splitter
-    // doesn't: drop surrounding quotes (users quote paths with spaces) and
-    // expand a leading ~. Then relative paths resolve against the CLI's cwd.
+    // Strip surrounding quotes and expand a leading ~ (the CLI's splitter doesn't).
     const cleaned = arg?.trim().replace(/^['"]|['"]$/g, "");
-    // No arg: enter here (cwd) if not already in agent mode; if we are,
-    // just report the current root rather than silently re-entering it.
     if (!cleaned && stateRef.current.agentRoot) {
       dispatch({ type: "notice", text: `agent mode on · ${stateRef.current.agentRoot} · /agent off to exit` });
       return;
@@ -413,19 +369,14 @@ export function App({
       dispatch({ type: "error", message: `not a directory: ${abs}` });
       return;
     }
-    agentHistoryRef.current = []; // fresh session for a new/reselected root
+    agentHistoryRef.current = []; // fresh session for the new root
     dispatch({ type: "enterAgent", root: abs });
   };
 
-  // /model — list what's cached on the serving node; /model <arg> — resolve
-  // arg against that cache (mlxctl-style substring) and switch. The cache is
-  // the gate on purpose: the server runs with HF_HUB_OFFLINE=1, so switching
-  // to an uncached repo would just break it on restart.
+  // /model [arg] — list cached models, or resolve arg (mlxctl-style substring) and switch.
   const handleModelSwitch = async (arg: string | undefined) => {
     const session = stateRef.current.session;
-    // local mode reads this Mac's cache; cluster and shard both read the
-    // server node's over SSH (in shard mode every node must have the model,
-    // and the server node is the one we can't see locally).
+    // local mode reads this Mac's cache; cluster/shard read the server node's over SSH.
     const cacheNode = session.mode === "local" ? "your Mac" : config.server.id;
     dispatch({ type: "notice", text: `reading model cache on ${cacheNode}…` });
     const listRes = await listServerModels(config, session);
@@ -444,9 +395,7 @@ export function App({
     if (listRes.ok) {
       const resolved = resolveModel(arg, listRes.models);
       if (resolved.kind === "none") {
-        // "name:tag" is Ollama's naming, not an HF repo id — and Ollama's
-        // store is invisible to the HF cache listing, so a miss here is
-        // usually a mode mistake rather than a missing download.
+        // "name:tag" is Ollama's naming, invisible to the HF cache — a miss here is usually a mode mistake.
         const looksOllama = session.mode !== "ollama" && /^[^/\s]+:[^/\s]+$/.test(arg);
         dispatch({
           type: "error",
@@ -462,18 +411,14 @@ export function App({
       }
       target = resolved.repo;
     }
-    // cache unreadable (listRes not ok): fall through with arg as typed
-    // rather than blocking the switch on a stats-style nicety.
+    // cache unreadable: fall through with arg as typed rather than blocking the switch.
 
     if (target === session.model) {
       dispatch({ type: "notice", text: `already serving ${target}` });
       return;
     }
 
-    // Pre-flight the wired-memory fit on the node that would serve (shard
-    // mode aggregates both nodes, so only whole-model modes are gated) —
-    // kickstarting a server with a model past its ceiling just times out
-    // vaguely 60s later, so refuse up front with the actionable answer.
+    // Pre-flight wired-memory fit (shard mode aggregates both nodes, so only whole-model modes are gated).
     if (session.mode !== "shard" && listRes.ok) {
       const sizeGB = listRes.models.find((m) => m.repo === target)?.sizeGB;
       const node = session.mode === "cluster" ? stateRef.current.nodes[0] : stateRef.current.nodes[1];
@@ -521,9 +466,7 @@ export function App({
     }
   };
 
-  // /split — no arg shows the current target + actual share so far; with an
-  // arg (e.g. "60/40") sets a new target, effective from the *next* session
-  // (this session already committed to whichever node connect() picked).
+  // /split [arg] — show current target + actual share, or set a new target for the next session.
   const handleSplit = (arg: string | undefined) => {
     if (!arg) {
       const pct = actualPct(prefs.splitHistory);
@@ -551,10 +494,7 @@ export function App({
     dispatch({ type: "notice", text: `split target set to ${formatSplit(parsed)} — applies from your next session` });
   };
 
-  // Plain-language description of how the model is currently being served —
-  // used by /mode's notices so the copy stays node-name-agnostic.
-  // Persisted alongside the model so the next session restores the runtime
-  // that can actually serve it (see prefs.ts's `backend`).
+  // Persisted alongside the model so the next session restores the runtime that can serve it.
   const backendOf = (s: Session) => (s.mode === "ollama" ? ("ollama" as const) : null);
 
   const describeMode = (s: Session): string => {
@@ -564,12 +504,8 @@ export function App({
     return "solo — your Mac serves the whole model";
   };
 
-  // Shared teardown-then-start path for /mode switches: stops whatever the
-  // current session is serving through, starts the replacement, and swaps
-  // the session via the same dispatch /model switching uses. The obligation
-  // to restore the server node's LaunchAgent on quit (tookOverFromServer)
-  // carries forward across switches — the new session may not have stopped
-  // it itself, but *somebody* this process spawned did.
+  // Shared teardown-then-start path for /mode switches; the LaunchAgent-restore
+  // obligation (tookOverFromServer) carries forward across switches.
   const replaceSession = async (
     prev: Session,
     model: string,
@@ -580,10 +516,7 @@ export function App({
     try {
       await stopCurrentSession(config, prev, (line) => dispatch({ type: "notice", text: line }));
       const next = await start(config, model, (line) => dispatch({ type: "notice", text: line }));
-      // Carrying rules: switching back to server mode discharges a prior
-      // takeover (the LaunchAgent running again IS the restore) — and if the
-      // takeover session was the one that stopped it, we're re-attaching to
-      // shared infra, not creating our own, so quit must not boot it out.
+      // Switching back to server mode discharges a prior takeover; re-attaching to shared infra must not boot it out on quit.
       const merged =
         next.mode === "cluster"
           ? { ...next, clusterOrigin: prev.tookOverFromServer ? ("attached" as const) : next.clusterOrigin }
@@ -604,9 +537,7 @@ export function App({
     }
   };
 
-  // /mode — show or change how the model is served: solo (whole model on
-  // this Mac, server node freed) or cluster (tensor-parallel sharded across
-  // every node in the hostfile, for models too big for one machine).
+  // /mode [sub] — show or change how the model is served (solo/server/cluster/ollama).
   const handleMode = async (arg: string | undefined) => {
     const session = stateRef.current.session;
     const [sub, ...rest] = (arg ?? "").split(/\s+/).filter(Boolean);
@@ -635,9 +566,7 @@ export function App({
       await replaceSession(session, session.model, startServer);
       return;
     }
-    // ollama: its model names ("qwen3.8:27b-mlx") are not HF repo ids and its
-    // store is separate from the HF cache, so resolve the optional model arg
-    // against the daemon's own list rather than the serving node's cache.
+    // ollama: resolve the model arg against the daemon's own list, not the HF cache.
     if (sub === "ollama") {
       let target = modelArg ?? session.model;
       const listRes = await listOllamaModels(config.ollama.host, config.ollama.port).catch(() => null);
@@ -647,8 +576,7 @@ export function App({
           dispatch({ type: "error", message: `"${target}" matches: ${resolved.repos.join(", ")} — be more specific` });
           return;
         }
-        // No match: fall through as typed so startOllama reports what IS
-        // available, rather than guessing a model here.
+        // No match: fall through as typed so startOllama reports what's available.
         if (resolved.kind === "match") target = resolved.repo;
       }
       if (session.mode === "ollama" && target === session.model) {
@@ -666,10 +594,8 @@ export function App({
       return;
     }
 
-    // cluster: resolve an optional model arg against the serving node's
-    // cache (same substring resolution as /model); an unresolved arg falls
-    // through as typed — startCluster's every-node cache check is the real
-    // gate and names whichever node is missing it.
+    // cluster: resolve the model arg against the serving node's cache; startCluster's
+    // every-node cache check is the real gate.
     let target = session.model;
     if (modelArg) {
       const listRes = await listServerModels(config, session);
@@ -750,8 +676,7 @@ export function App({
 
   const handleSubmit = (raw: string) => {
     const value = raw.trim();
-    // A pending write/bash approval consumes the next line entirely (even a
-    // /command): y/yes runs the tool, anything else declines it.
+    // A pending approval consumes the next line entirely: y/yes runs the tool, else declines it.
     if (state.pendingConfirm !== null) {
       resolveConfirm(/^y(es)?$/i.test(value));
       return;
@@ -784,17 +709,12 @@ export function App({
 
   const columns = stdout?.columns ?? 80;
   const rows = stdout?.rows ?? 24;
-  // StatusPanel height: fixed model+server rows, plus 1 memory line combined
-  // or 1 per node in split view, plus its marginTop/marginBottom box (+2).
-  // Recomputed every render (stats poll, keystroke, token) so the budget
-  // always matches the current view.
+  // StatusPanel height: fixed rows + memory line(s) + margin box; recomputed each render.
   const panelLines =
     PANEL_FIXED_LINES + (state.statsView === "combined" ? 1 : Math.max(1, state.nodes.length)) + 2;
-  // ModelListView: heading + one row per model + hint + marginBottom (or the
-  // 2-line empty-cache message).
+  // ModelListView: heading + one row per model + hint + margin (or the 2-line empty message).
   const modelListLines =
     state.modelList === null ? 0 : state.modelList.length === 0 ? 2 : state.modelList.length + 3;
-  // ⧉ hint under the transcript: only when there's a finished reply to copy.
   const showCopyHint = !state.busy && state.history.some((m) => m.role === "assistant");
   const reserved =
     HEADER_LINES +
@@ -802,7 +722,7 @@ export function App({
     (state.showHelp ? HELP_LINES : 0) +
     modelListLines +
     (state.notice ? 1 : 0) +
-    (state.agentRoot ? 1 : 0) + // agent bar: mode hint or the y/N approval prompt
+    (state.agentRoot ? 1 : 0) + // agent bar: mode hint or approval prompt
     (showCopyHint ? 1 : 0) +
     INPUT_LINES +
     PADDING_LINES +
@@ -810,9 +730,7 @@ export function App({
   const chatBudget = Math.max(3, rows - reserved);
   const streamingLines = state.streaming !== null ? estimateLines(state.streaming, columns) + 1 : 0;
   let { visible, hiddenCount } = windowMessages(state.history, columns, Math.max(1, chatBudget - streamingLines));
-  // Pin the question being answered when it scrolled out of the window:
-  // costs 2 rows (line + margin), so re-window with a smaller budget when it
-  // applies — long replies never orphan their prompt.
+  // Pin the question being answered if it scrolled out of the window (costs 2 rows).
   let lastUserIdx = -1;
   for (let i = state.history.length - 1; i >= 0; i--) {
     if (state.history[i].role === "user") {
@@ -856,10 +774,7 @@ export function App({
                 ? "your Mac"
                 : config.server.id
           }
-          // fit is judged against the RAM of whichever node(s) serve: nodes
-          // is [server, peer]; in local mode "this Mac" is the peer (the dev
-          // machine serving itself), and shard mode aggregates both nodes'
-          // memory (that's the whole point of sharding).
+          // fit is judged against the RAM of whichever node(s) serve; shard mode aggregates both.
           ramGB={(() => {
             if (state.session.mode === "shard") {
               const total = state.nodes.reduce(
@@ -909,8 +824,7 @@ export function App({
       )}
 
       <InputBar
-        // The approval prompt keeps the bar enabled even though the agent is
-        // "busy" — that's how the user answers y/N.
+        // Keep enabled during a pending approval so the user can answer y/N.
         disabled={(state.busy || state.switching || state.agentBusy) && state.pendingConfirm === null}
         busyText={
           state.switching

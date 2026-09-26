@@ -1,8 +1,5 @@
-// The agent loop: send the running message list + tool specs to the model,
-// run whatever tools it asks for (pausing for confirmation on writes/bash),
-// feed the results back, and repeat until it answers with no more tool calls
-// or the round cap is hit. UI-agnostic — it emits events and awaits a
-// confirm() callback, both wired up in app.tsx.
+// The agent loop: send messages + tool specs to the model, run requested tools (confirming
+// writes/bash first), feed results back, repeat until done or the round cap hits. UI-agnostic.
 
 import { agentTurn, ChatStreamError, type ChatMessage } from "../chat/chat";
 import { TOOL_SPECS, TOOL_BY_NAME, ToolError } from "./tools";
@@ -14,20 +11,14 @@ export type AgentEvent =
 
 export interface RunAgentOpts {
   base: string;
-  // Repo id the agent runs on, sent with each turn (config.agentModel) so the
-  // server serves it regardless of the chat model. Undefined → server default.
-  model?: string;
+  model?: string; // undefined → server default
   root: string;
   task: string;
-  // Prior turns in this agent session, for continuity across messages. The
-  // system prompt is prepended here if absent, so callers pass [] to start.
-  history: ChatMessage[];
+  history: ChatMessage[]; // prior turns; system prompt prepended if absent
   signal?: AbortSignal;
   maxRounds?: number;
   onEvent: (e: AgentEvent) => void;
-  // Resolve true to run a needs-confirm tool, false to skip it. app.tsx wires
-  // this to a y/N prompt in the input bar.
-  confirm: (summary: string) => Promise<boolean>;
+  confirm: (summary: string) => Promise<boolean>; // true to run a needs-confirm tool
 }
 
 export class AgentAborted extends Error {}
@@ -53,12 +44,8 @@ function systemPrompt(root: string): ChatMessage {
   };
 }
 
-/**
- * Runs the agent to completion (or the round cap). Returns the full API
- * message list (so a follow-up message can continue the same session) and the
- * final assistant text. Throws AgentAborted if the signal fires, or
- * ChatStreamError on a server failure — callers keep the session alive.
- */
+// Runs to completion (or round cap). Throws AgentAborted on abort, or ChatStreamError on
+// server failure — callers keep the session alive.
 export async function runAgent(opts: RunAgentOpts): Promise<{ messages: ChatMessage[]; finalText: string }> {
   const { base, model, root, task, signal, onEvent, confirm } = opts;
   const maxRounds = opts.maxRounds ?? 12;
@@ -81,8 +68,7 @@ export async function runAgent(opts: RunAgentOpts): Promise<{ messages: ChatMess
       throw err;
     }
 
-    // Record the assistant turn (text + any tool_calls) exactly as sent, so
-    // the follow-up tool messages match by id.
+    // Exactly as sent, so follow-up tool messages match by id.
     messages.push({
       role: "assistant",
       content: turn.content,
@@ -102,8 +88,7 @@ export async function runAgent(opts: RunAgentOpts): Promise<{ messages: ChatMess
       try {
         args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
       } catch {
-        // Leave args empty; the tool reports the missing field, and the model
-        // sees the error and can retry with valid JSON.
+        // leave args empty; the tool reports the missing field and the model can retry
       }
 
       if (!tool) {
@@ -137,9 +122,7 @@ export async function runAgent(opts: RunAgentOpts): Promise<{ messages: ChatMess
   }
 
   finalText = `stopped after ${maxRounds} tool rounds without finishing — send another message to continue`;
-  // Record the cutoff in the API history too, so a follow-up "continue" reads
-  // coherently to the model instead of resuming mid-tool-round.
-  messages.push({ role: "assistant", content: finalText });
+  messages.push({ role: "assistant", content: finalText }); // so a follow-up reads coherently
   onEvent({ type: "assistant", text: finalText });
   return { messages, finalText };
 }

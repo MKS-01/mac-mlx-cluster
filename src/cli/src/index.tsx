@@ -19,11 +19,8 @@ import { fitVerdict } from "./cluster/memory";
 import { localModelSizeGB } from "./models/models";
 import { version } from "../package.json";
 
-// Startup wear-leveling uses the shared thresholds (splitPolicy.ts): below
-// IDLE, the peer is clearly free and we just take over silently; at/above
-// BUSY, something else is already loading it and we back off without even
-// asking; the gap between is genuinely ambiguous, so that's the only case
-// that prompts.
+// Wear-leveling thresholds (splitPolicy.ts): below IDLE take over silently, at/above
+// BUSY back off, the ambiguous gap between is the only case that prompts.
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -73,9 +70,7 @@ async function confirmPrompt(question: string): Promise<boolean> {
 
 let session: Session | null = null;
 let shutdownDone = false;
-// Wall time this session actually spent generating (reported by App via
-// onActiveTime) — credited to whichever node served, on the way out, as the
-// wear-leveling split's usage metric (see splitPolicy.ts).
+// Wall time spent generating, credited to the serving node as the wear-leveling usage metric.
 let sessionActiveMs = 0;
 
 let config: ClusterConfig;
@@ -88,22 +83,19 @@ try {
 
 function persistActiveTime(): void {
   if (!session || sessionActiveMs <= 0) return;
-  // Reload fresh rather than reusing the startup snapshot — /split may have
-  // changed the target mid-session, and we don't want to clobber that.
+  // Reload fresh — /split may have changed the target mid-session.
   const fresh = loadPrefs();
   const minutes = sessionActiveMs / 60000;
   if (session.mode === "cluster") fresh.splitHistory.serverMinutes += minutes;
   else if (session.mode === "shard") {
-    // A sharded session works both Macs equally — credit half to each so
-    // heavy /mode cluster use doesn't skew whose turn the split thinks it is.
+    // A sharded session works both Macs equally — credit half to each.
     fresh.splitHistory.serverMinutes += minutes / 2;
     fresh.splitHistory.peerMinutes += minutes / 2;
   } else fresh.splitHistory.peerMinutes += minutes;
   savePrefs(fresh);
 }
 
-// Normal quit path (Ctrl+C, /quit, SIGTERM) — can await the SSH round trip
-// needed to bootout a server this session started (see cluster.ts).
+// Normal quit path (Ctrl+C, /quit, SIGTERM) — can await an SSH bootout round trip.
 async function shutdown(): Promise<void> {
   if (shutdownDone) return;
   shutdownDone = true;
@@ -111,9 +103,7 @@ async function shutdown(): Promise<void> {
   await disconnect(config, session, (line) => console.log(dim(line)));
 }
 
-// Safety net for paths where Node won't run async work (the 'exit' event,
-// or right after an uncaught exception) — best-effort synchronous cleanup
-// so an abnormal exit doesn't orphan a model loaded on the M1's RAM.
+// Sync fallback for paths where Node won't run async work ('exit', uncaught exceptions).
 function shutdownSyncFallback(): void {
   if (shutdownDone) return;
   shutdownDone = true;
@@ -125,9 +115,7 @@ function shutdownSyncFallback(): void {
   disconnectSync(config, session);
 }
 
-// SIGINT only fires while the terminal isn't in Ink's raw mode (during the
-// startup prompts, or if raw mode failed) — once Ink is up, Ctrl+C is
-// keyboard input and App routes it through the same startQuit as /quit.
+// SIGINT only fires before Ink's raw mode is up; after that App routes Ctrl+C itself.
 process.on("SIGINT", async () => {
   await shutdown();
   process.exit(0);
@@ -136,11 +124,7 @@ process.on("SIGTERM", async () => {
   await shutdown();
   process.exit(0);
 });
-// Terminal window closed / SSH connection dropped. Without a handler the
-// default action kills the process WITHOUT running the 'exit' event, so
-// nothing would stop a shard ring, boot out a server we started, or restore
-// a taken-over LaunchAgent. stdout may already be gone here, so any write
-// failure inside cleanup must not abort it.
+// Terminal closed / SSH dropped: without a handler the default action skips 'exit' cleanup entirely.
 process.on("SIGHUP", async () => {
   try {
     await shutdown();
@@ -155,8 +139,7 @@ process.on("uncaughtException", (err) => {
   shutdownSyncFallback();
   process.exit(1);
 });
-// Bun treats these as fatal like uncaughtException; same safety net so an
-// unawaited promise blowing up still tears the servers down.
+// Bun treats these as fatal like uncaughtException; same safety net.
 process.on("unhandledRejection", (err) => {
   console.error(red(String(err instanceof Error ? err.stack ?? err.message : err)));
   shutdownSyncFallback();
@@ -164,17 +147,11 @@ process.on("unhandledRejection", (err) => {
 });
 
 const { model, localPort } = parseArgs();
-// --local-port is a per-session override of config.localApiPort — it only
-// affects a server this session spawns locally, never the remote node.
+// Per-session override of config.localApiPort; never affects the remote node.
 if (localPort !== undefined) config = { ...config, localApiPort: localPort };
 const prefs = loadPrefs();
 
-// Safety net for a remembered model that no HF-cache-backed mode can serve —
-// an Ollama-style name ("gemma4:12b-mlx") left in prefs by a session that
-// predates the `backend` field, or by any path that saved one without it.
-// Without this the session comes up pointed at a model mlx_lm can't resolve
-// and every message fails, which reads like a broken install rather than a
-// stale preference. Only applies when Ollama isn't the restored backend.
+// Safety net for a remembered Ollama-style name that no HF-cache-backed mode can serve.
 if (prefs.backend !== "ollama" && prefs.model && !/^[\w.-]+\/[\w.-]+$/.test(prefs.model)) {
   console.log(
     dim(`remembered model "${prefs.model}" isn't an HF repo id — using ${config.defaultModel}. ` +
@@ -183,19 +160,10 @@ if (prefs.backend !== "ollama" && prefs.model && !/^[\w.-]+\/[\w.-]+$/.test(pref
   prefs.model = null;
 }
 
-// Wear-leveling: decide whether this session should serve from the peer
-// (this Mac) instead of the server node, per splitPolicy.ts's recommendation
-// — then sanity-check that against what the peer is actually doing right
-// now before acting on it, so we never steal a Mac that's mid-task for
-// something unrelated, and don't bother asking when the answer is obvious.
-// config.defaultMode === "solo" pins serving to this Mac, so there's no turn
-// to take and nothing to probe on the server node — skip straight past the
-// wear-leveling check (which only ever decides *which* Mac serves).
-let usePeer = config.defaultMode === "solo";
-// An Ollama session serves on this Mac through its own daemon, so the
-// wear-leveling turn (which only picks WHICH Mac runs mlx) has nothing to
-// decide — skip its prompt rather than asking a question we'd ignore.
-if (prefs.backend === "ollama" && !model) usePeer = true;
+// Wear-leveling: decide whether to serve from the peer per splitPolicy.ts's recommendation,
+// sanity-checked against the peer's actual current load.
+let usePeer = config.defaultMode === "solo"; // solo pins serving here; skip the check
+if (prefs.backend === "ollama" && !model) usePeer = true; // ollama serves locally regardless
 if (!usePeer && recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
   const pct = actualPct(prefs.splitHistory);
   const splitLine =
@@ -227,11 +195,7 @@ if (!usePeer && recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
   }
 }
 
-// Memory-fit override: whatever the wear-leveling turn says, never point
-// the session at a Mac the model likely can't wire (32 vs 48 GB nodes are
-// not interchangeable). Size comes from this Mac's HF cache (snapshots are
-// identical copies on both nodes); RAM from macmon. Either unavailable →
-// skip the check rather than guess.
+// Memory-fit override: never point the session at a Mac the model likely can't wire.
 {
   const startupModel = model ?? prefs.model ?? config.defaultModel;
   const sizeGB = localModelSizeGB(startupModel);
@@ -247,8 +211,7 @@ if (!usePeer && recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
     if (intendedRam !== null && fitVerdict(sizeGB, intendedRam) === "exceeds") {
       const intended = usePeer ? config.peer : config.server;
       const other = usePeer ? config.server : config.peer;
-      // Solo is a deliberate pin to this Mac — warn about a tight fit, but
-      // never redirect to the other node behind the user's back.
+      // Solo is a deliberate pin — warn, but never redirect behind the user's back.
       if (config.defaultMode === "solo") {
         console.log(
           dim(
@@ -277,10 +240,7 @@ if (!usePeer && recommend(prefs.splitHistory, prefs.splitTarget) === "peer") {
 }
 
 try {
-  // An Ollama-served model must come back up under Ollama: its store and
-  // naming ("gemma4:12b-mlx") are its own, so restoring that model into a
-  // solo/server session hands mlx_lm an id it can't resolve. An explicit
-  // --model overrides the remembered pair entirely.
+  // An Ollama-served model must come back up under Ollama; --model overrides the remembered pair.
   session =
     prefs.backend === "ollama" && !model
       ? await startOllama(config, prefs.model ?? config.defaultModel, (line) => console.log(dim(line)))
@@ -301,23 +261,16 @@ const ink = render(
     onActiveTime={(ms) => {
       sessionActiveMs += ms;
     }}
-    // /mode and /model switches replace the session inside App; every exit
-    // path here (signals, 'exit', crashes) must clean up the CURRENT one —
-    // cleaning up the startup session would orphan whatever a switch spawned
-    // and skip restoring a taken-over LaunchAgent.
+    // Keep every exit path pointed at the current session, not the startup one.
     onSessionChange={(s) => {
       session = s;
     }}
   />,
-  // Ctrl+C: Ink's default handler just unmounts, skipping teardown — App's
-  // useInput routes it through the same graceful quit as /quit instead.
+  // Disabled so App's useInput can route Ctrl+C through the graceful quit path.
   { exitOnCtrlC: false },
 );
 
-// On resize the previous frame re-wraps, so ink erases the wrong number of
-// lines and stale copies pile up. Run BEFORE ink's own resize handler
-// (prependListener): drop ink's frame tracking and wipe the screen, so the
-// repaint ink is about to do always starts from a blank slate at the top.
+// Run before ink's own resize handler: wipe the screen so its repaint starts from a blank slate.
 process.stdout.prependListener("resize", () => {
   ink.clear();
   process.stdout.write("\x1b[2J\x1b[3J\x1b[H");

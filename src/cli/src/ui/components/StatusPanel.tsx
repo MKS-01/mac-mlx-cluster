@@ -15,29 +15,16 @@ function Label({ text }: { text: string }) {
 function serverLabel(session: Session): string {
   if (session.mode === "shard") return "sharded · all nodes (tensor parallel)";
   if (session.mode === "ollama") {
-    // proc null = the daemon was already running and outlives this session.
     return session.ollamaHandle?.proc ? "ollama · started by this session" : "ollama · attached";
   }
   if (session.mode === "local") {
-    // Attached (localHandle null): serving through a local server someone
-    // else started (another client, a previous session) — not ours to stop.
     if (!session.localHandle) return "solo · your Mac (attached to running server)";
-    // A deliberate takeover (wear-leveling turn, /mode solo) reads
-    // differently than an emergency fallback with the server unreachable.
     return session.localOrigin === "takeover" ? "solo · your Mac" : "solo · your Mac (server unreachable)";
   }
   return session.clusterOrigin === "started" ? "server · started by this session" : "server · attached";
 }
 
-/**
- * The dedicated model/memory section under the wordmark — same idea as
- * readback's StatusLine (dim label, FG value), but as a labeled block since
- * the cluster has more live state than readback's one-liner.
- *
- * Every value row truncates rather than wraps: app.tsx's line budget counts
- * each of these as exactly one row, so a wrapped long model name would
- * silently push the transcript off-screen.
- */
+// Every value row truncates rather than wraps — app.tsx's line budget counts each as one row.
 export function StatusPanel({
   session,
   view,
@@ -51,9 +38,7 @@ export function StatusPanel({
   nodes: NodeStats[];
   combined: CombinedStats;
   narrow?: boolean;
-  // Another client is generating on the serving node while this CLI sits
-  // idle — derived in app.tsx's stats poll, rendered as a suffix so the
-  // panel's row count never changes.
+  // Rendered as a suffix, not a new row, so the panel's row count never changes.
   externalBusy?: boolean;
 }) {
   return (

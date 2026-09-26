@@ -29,13 +29,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Location of the MLX virtualenv (override with MLX_VENV). The 'hf' and
-# 'mlx_lm.chat' binaries are invoked from its bin/; fall back to PATH if absent.
+# Override with MLX_VENV; falls back to PATH if the venv binaries are absent.
 VENV_BIN = Path(os.environ.get("MLX_VENV", str(Path.home() / ".venvs/mlx"))) / "bin"
 HF = str(VENV_BIN / "hf") if (VENV_BIN / "hf").exists() else "hf"
 CHAT = str(VENV_BIN / "mlx_lm.chat") if (VENV_BIN / "mlx_lm.chat").exists() else "mlx_lm.chat"
 PYTHON = str(VENV_BIN / "python") if (VENV_BIN / "python").exists() else "python3"
-# HF cache location honors HF_HOME if set, else the default.
 HUB = Path(os.environ.get("HF_HOME", str(Path.home() / ".cache/huggingface"))) / "hub"
 LOCKS = HUB / ".locks"
 
@@ -264,11 +262,7 @@ def cmd_clean(args):
         if not d.exists():
             die(f"not in cache: {repo}")
         subprocess.run(["pkill", "-f", f"hf download.*{repo}"])
-        # Only ever remove stale partial data (leftover .incomplete blobs from
-        # earlier failed/retried attempts — the hf-xet backend starts a fresh
-        # temp file per attempt instead of resuming, so these accumulate) and
-        # locks. Never touch a complete snapshot's files — that's what
-        # `mlxctl remove` is for, as a deliberate, separate action.
+        # Only stale .incomplete blobs + locks; never a complete snapshot's files (mlxctl remove is for that).
         blobs = d / "blobs"
         incompletes = list(blobs.glob("*.incomplete")) if blobs.exists() else []
         freed = sum(f.stat().st_size for f in incompletes)

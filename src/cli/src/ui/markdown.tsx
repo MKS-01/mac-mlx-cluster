@@ -2,14 +2,9 @@ import React from "react";
 import { Text } from "ink";
 import { BLUE } from "./theme";
 
-// Lightweight markdown for model replies: headings, **bold**, `code`, and
-// list bullets — the constructs local models actually emit. Anything else
-// passes through as plain text; unterminated markers (mid-stream) fall
-// through literally, so streaming never renders half-parsed garbage.
-//
-// Rendering only ever REMOVES marker characters (###, **, backticks), so
-// chatWindow.ts's raw-text line estimates stay >= the drawn height — the
-// safe direction for the transcript's height budget.
+// Lightweight markdown: headings, **bold**, `code`, list bullets. Unterminated markers
+// (mid-stream) fall through literally. Only ever REMOVES marker chars, so chatWindow.ts's
+// raw-text line estimates stay >= the drawn height (the safe direction for the height budget).
 
 function renderInline(line: string, keyBase: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];

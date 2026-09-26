@@ -28,15 +28,9 @@ function parseDu(output: string): CachedModel[] {
   return models.sort((a, b) => b.sizeGB - a.sizeGB);
 }
 
-/**
- * Lists the HF-cached models on whichever node actually serves — the remote
- * server node in cluster mode, this Mac in local mode. That cache is the
- * hard truth for /model: the server runs with HF_HUB_OFFLINE=1, so anything
- * not in it can't be switched to.
- */
+// The HF cache on whichever node serves is the hard truth for /model (server runs HF_HUB_OFFLINE=1).
 export async function listServerModels(config: ClusterConfig, session: Session): Promise<ModelListResult> {
-  // Ollama keeps its own model store, so the HF cache says nothing about what
-  // it can serve — ask the daemon instead.
+  // Ollama has its own model store; ask the daemon instead of the HF cache.
   if (session.mode === "ollama") {
     try {
       return { ok: true, models: await listOllamaModels(config.ollama.host, config.ollama.port) };
@@ -79,9 +73,7 @@ export function localModelSizeGB(repo: string): number | null {
   return m ? Number(m[1]) / 1024 ** 2 : null;
 }
 
-// HF repo ids are GitHub-style "org/name" — letters, digits, ., _, - only.
-// Enforced before the id is interpolated into any shell/SSH command below,
-// so an unresolved user-typed argument can never smuggle shell syntax.
+// Enforced before interpolation into any shell/SSH command below, to block shell syntax injection.
 const REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
 
 export async function checkCachedOnBothNodes(

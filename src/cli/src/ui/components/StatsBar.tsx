@@ -4,13 +4,10 @@ import { DIM, FG, GREEN, YELLOW, RED, TRACK } from "../theme";
 import { pressureColor } from "../colorScale";
 import type { NodeStats, CombinedStats } from "../../net/macmon";
 
-// Gauge width in cells. Wide enough to read pressure at a glance, narrow
-// enough that a split-view line (id + bar + figures + suffix) fits 80 cols.
+// Wide enough to read pressure at a glance, narrow enough that a split-view line fits 80 cols.
 const BAR_WIDTH = 16;
-// Lower-3/4 block for BOTH fill and track: same glyph = same height (no
-// stepped seam between fill and track), and the empty top quarter keeps
-// adjacent rows' bars from fusing into one blob — full-height █ touches the
-// row above/below.
+// Lower-3/4 block for both fill and track (no seam); the empty top quarter keeps adjacent
+// rows' bars from fusing into one blob.
 const BAR_CH = "▆";
 
 function tempColor(c: number): string {
@@ -19,8 +16,7 @@ function tempColor(c: number): string {
   return GREEN;
 }
 
-// "14.2" for used (one decimal), "32" for whole-number totals — matches the
-// README's mock ("14.2 / 32 GB") and keeps the line from reading as noise.
+// "14.2" for used, "32" for whole-number totals — matches the README's mock.
 function gbUsed(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);
 }
@@ -29,10 +25,7 @@ function gbTotal(bytes: number): string {
   return Number.isInteger(g) ? String(g) : g.toFixed(1);
 }
 
-/**
- * Horizontal RAM gauge: filled cells take the green/yellow/red pressure
- * color (the bar itself is the at-a-glance signal), track stays dark.
- */
+// Filled cells take the pressure color, track stays dark.
 function Bar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(1, pct));
   const filled = Math.round(clamped * BAR_WIDTH);
@@ -90,9 +83,7 @@ export function StatsBar({
   view: "combined" | "split";
   nodes: NodeStats[];
   combined: CombinedStats;
-  // Below ~80 columns a full stats line wraps and silently eats the line
-  // budget (app.tsx sizes the transcript assuming each panel row is one
-  // row) — degrade by dropping temps first; the bar + GB is the core signal.
+  // Below ~80 cols a full line wraps and eats app.tsx's line budget; drop temps first.
   narrow?: boolean;
 }) {
   if (view === "combined") {

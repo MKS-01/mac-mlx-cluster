@@ -6,9 +6,7 @@ import { cleanBody } from "../../chat/chatWindow";
 import { Markdown } from "../markdown";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
-// One transcript row: a fixed 2-col marker gutter + a flex content box, so
-// wrapped lines get a hanging indent instead of crawling back under the
-// marker (matters for long model replies).
+// Fixed 2-col marker gutter + flex content, so wrapped lines get a hanging indent.
 function Row({
   marker,
   markerColor,
@@ -28,12 +26,8 @@ function Row({
   );
 }
 
-// Deliberately NOT <Static> — Static permanently flushes to the real
-// terminal scrollback, so the fixed header above it gets pushed up and out
-// of view as the transcript grows (that's the whole "keeps scrolling down"
-// bug). Instead the caller windows `visible` to whatever fits the terminal
-// height (see chatWindow.ts) and this just re-renders that slice in place
-// each frame, like the rest of the Ink tree.
+// Deliberately NOT <Static> — that flushes to real scrollback and pushes the fixed header
+// out of view. The caller windows `visible` to the terminal height instead (chatWindow.ts).
 export function ChatView({
   visible,
   hiddenCount,
@@ -45,9 +39,7 @@ export function ChatView({
   hiddenCount: number;
   streaming: string | null;
   error: string | null;
-  // The question being answered, when it has scrolled out of the window —
-  // pinned as a single truncated line so long replies never orphan their
-  // prompt (cleared with the transcript, like everything else).
+  // Question being answered, pinned as one line when it scrolls out of the window.
   pinnedQuestion?: string | null;
 }) {
   return (
@@ -75,9 +67,7 @@ export function ChatView({
             <Text color={DIM}>{cleanBody(msg.content)}</Text>
           </Row>
         ) : msg.role === "action" ? (
-          // Agent tool activity: one dim line per call/result (content already
-          // carries a ✓/✗ prefix), tight (no marker) so a multi-tool turn
-          // reads as a compact log, not spaced-out chat turns.
+          // Agent tool activity: tight, no marker, reads as a compact log.
           <Box key={i}>
             <Box width={2} flexShrink={0} />
             <Box flexGrow={1}>

@@ -11,22 +11,16 @@ export interface SwitchResult {
   session?: Session;
 }
 
-/**
- * Switches the served model, without restarting the CLI. In cluster mode
- * this edits the remote LaunchAgent plist and kickstarts it (a few seconds
- * of downtime); in local mode it kills and respawns the process this CLI
- * owns. Reports a clear error at whichever step fails instead of leaving
- * the session in a half-switched state silently.
- */
+// Switches the served model without restarting the CLI. Cluster mode edits the remote plist
+// and kickstarts it; local mode kills and respawns the owned process.
 export async function switchModel(
   config: ClusterConfig,
   session: Session,
   newModel: string,
   onStatus: (line: string) => void,
 ): Promise<SwitchResult> {
-  // Shard mode has no plist to edit — a model switch is a full teardown +
-  // relaunch of the distributed group. Cache is checked on every node BEFORE
-  // stopping the old group, so a bad target leaves the current model serving.
+  // Shard mode: full teardown + relaunch. Cache checked before stopping, so a bad target
+  // leaves the current model serving.
   if (session.mode === "shard") {
     const cache = await checkCachedOnBothNodes(config, newModel);
     if (!cache.ok) {
@@ -53,9 +47,7 @@ export async function switchModel(
   }
 
   if (session.mode === "local") {
-    // Attached (localHandle null): the server on this port belongs to
-    // someone else — another client, or a previous session. Killing and
-    // respawning it out from under its owner isn't ours to do.
+    // Attached (localHandle null): the server belongs to someone else, not ours to kill.
     if (!session.localHandle) {
       return {
         ok: false,

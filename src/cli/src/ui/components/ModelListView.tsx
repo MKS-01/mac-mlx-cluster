@@ -4,9 +4,7 @@ import { BLUE, DIM, FG, GREEN, RED, YELLOW } from "../theme";
 import type { CachedModel } from "../../models/models";
 import { fitVerdict } from "../../cluster/memory";
 
-// Rendering of the shared wired-ceiling fit verdict (cluster/memory.ts) —
-// weights alone aren't the whole story (KV cache, OS headroom), which the
-// estimated-ceiling thresholds there account for.
+// Renders the shared wired-ceiling fit verdict (weights alone aren't the whole story).
 function fit(sizeGB: number, ramGB: number | null): { text: string; color: string } | null {
   if (ramGB === null) return null;
   const v = fitVerdict(sizeGB, ramGB);
@@ -35,9 +33,7 @@ export function ModelListView({
       </Box>
     );
   }
-  // Cap the name column so one unusually long repo id can't widen every row
-  // past the terminal and wrap (each wrapped row breaks app.tsx's line
-  // budget). 48 chars fits the usual mlx-community/… ids untruncated.
+  // Cap so one long repo id can't wrap a row and break app.tsx's line budget.
   const NAME_MAX = 48;
   const namePad = Math.min(Math.max(...models.map((m) => m.repo.length)), NAME_MAX);
   const repoLabel = (repo: string) =>

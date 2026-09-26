@@ -5,12 +5,8 @@ import { DEFAULT_SPLIT, EMPTY_HISTORY, type SplitHistory, type SplitTarget } fro
 
 export interface Prefs {
   model: string | null;
-  // Which backend last served `model`. A remembered model is only meaningful
-  // together with the runtime that can serve it: Ollama keeps its own store
-  // with its own naming ("gemma4:12b-mlx"), so restoring that name into a
-  // solo/server session sends an unservable id to mlx_lm and the session comes
-  // up broken. Only "ollama" is distinguished — the other modes all resolve
-  // against the same HF cache.
+  // Which backend last served `model` — Ollama's naming isn't an HF repo id, so restoring it
+  // into a solo/server session would break. Only "ollama" is distinguished from the HF-cache modes.
   backend: "ollama" | null;
   statsView: "combined" | "split" | null;
   splitTarget: SplitTarget;

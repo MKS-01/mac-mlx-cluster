@@ -1,7 +1,5 @@
-// Pattern B: tensor-parallel sharding across both Macs via mlx.launch.
-// mlx_lm.server has native distributed support (it detects the group and
-// loads via sharded_load; rank 0 serves the normal OpenAI-compatible HTTP
-// API), so nothing custom runs on the nodes — this module only owns
+// Pattern B: tensor-parallel sharding across both Macs via mlx.launch. mlx_lm.server has
+// native distributed support (rank 0 serves the normal HTTP API), so this module only owns
 // launching and tearing down the mlx.launch process group.
 
 import { existsSync, readFileSync } from "node:fs";
@@ -18,19 +16,14 @@ export interface DistributedServerHandle {
 
 export class DistributedLaunchError extends Error {}
 
-// Distributed cold load is slower than a local one (both ranks load their
-// shard, then sync over the bridge) — budget well past local mode's 120s.
+// Slower than a local cold load (both ranks load + sync over the bridge) — budget past 120s.
 const STARTUP_TIMEOUT_MS = 240_000;
 
 function expandTilde(p: string): string {
   return p.startsWith("~") ? join(homedir(), p.slice(1)) : p;
 }
 
-/**
- * Rank 0's IP, read from the hostfile itself (first entry = rank 0,
- * mlx.launch's own convention) so the HTTP endpoint's address has exactly
- * one source of truth — the same file mlx.launch reads.
- */
+// Read from the hostfile itself (first entry = rank 0) so there's one source of truth.
 export function rankZeroIp(hostfilePath: string): string {
   const path = expandTilde(hostfilePath);
   if (!existsSync(path)) {
@@ -54,12 +47,7 @@ export function rankZeroIp(hostfilePath: string): string {
   return ip;
 }
 
-/**
- * Launches mlx_lm.server sharded across every node in the hostfile via
- * `mlx.launch --backend ring`, and waits until rank 0 answers the health
- * check. The child's stdin is never connected to ours — piping stdin into
- * mlx.launch corrupts its launcher bookkeeping (CLUSTER_SETUP.md gotcha).
- */
+// stdin is never connected to ours — piping stdin into mlx.launch corrupts its bookkeeping.
 export async function startDistributedServer(
   config: ClusterConfig,
   model: string,
@@ -91,10 +79,7 @@ export async function startDistributedServer(
         "--",
         join(config.venvPath, "bin", "mlx_lm.server"),
         "--model", model,
-        // Bind rank 0's bridge IP only — same principle as Pattern A's
-        // LaunchAgent (never 0.0.0.0), so a sharded session doesn't expose
-        // an unauthenticated chat API to Wi-Fi/LAN.
-        "--host", ip,
+        "--host", ip, // bridge IP only, never 0.0.0.0 — don't expose the chat API to Wi-Fi/LAN
         "--port", String(config.localApiPort),
       ],
       { stdin: "ignore", stdout: "ignore", stderr: "pipe" },
@@ -127,19 +112,12 @@ export async function startDistributedServer(
   );
 }
 
-// Belt-and-braces: whether mlx.launch reaps its SSH'd remote rank on SIGTERM
-// is unverified on this hardware, so always clear any leftover mlx_lm.server
-// on the server node too (idempotent — same thing mlxctl clean does locally).
-// The local rank is a child of mlx.launch and dies with it; the CLI runs on
-// the peer, so the only rank we can't see is the server node's.
+// Whether mlx.launch reaps its SSH'd remote rank on SIGTERM is unverified, so always sweep
+// the server node too (idempotent). The local rank dies with mlx.launch itself.
 function killRemoteRankCmd(): string {
   return "pkill -f mlx_lm.server || true";
 }
 
-/**
- * Stops the whole distributed group: SIGTERM mlx.launch, escalate to
- * SIGKILL if it lingers, then sweep the server node for an orphaned rank.
- */
 export async function stopDistributedServer(
   handle: DistributedServerHandle | null,
   config: ClusterConfig,
@@ -153,11 +131,7 @@ export async function stopDistributedServer(
   await runRemote(config.server.sshUser, config.server.ip, killRemoteRankCmd(), 8000);
 }
 
-/**
- * Synchronous, best-effort teardown for process exit / uncaughtException
- * handlers (Node won't run async work there) — SIGTERM so mlx.launch gets a
- * chance to reap its remote rank, plus the same remote sweep, blocking.
- */
+// Synchronous best-effort teardown for 'exit'/uncaughtException, where Node won't run async work.
 export function stopDistributedServerSync(handle: DistributedServerHandle | null, config: ClusterConfig): void {
   try {
     if (handle && handle.proc.exitCode === null) handle.proc.kill("SIGTERM");

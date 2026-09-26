@@ -1,6 +1,4 @@
-// Thin SSH wrapper. Every call is short-timeout + non-interactive so a dead
-// or unauthorized node fails fast with a clear message instead of hanging the
-// UI (the classic "ssh sat there for 2 minutes" trap).
+// Thin SSH wrapper. Short-timeout + non-interactive so a dead/unauthorized node fails fast.
 
 export interface RemoteResult {
   ok: boolean;

@@ -3,11 +3,8 @@ import { Box, Text } from "ink";
 import { BLUE, DIM, FG } from "../theme";
 import { version } from "../../../package.json";
 
-// Wordmark: a replica of the README hero (doc/img/cli.svg) — one line of
-// plain bold type, "MLX" in white, "CLUSTER" in the single static blue
-// accent (never recolored by state), one dim subtitle line with the
-// version in blue at the end. Deliberately no big-glyph banner: block
-// lettering reads as noise at large terminal font sizes.
+// Replica of the README hero. Deliberately no big-glyph banner — block lettering reads as
+// noise at large terminal font sizes.
 export function Header() {
   return (
     <Box flexDirection="column">

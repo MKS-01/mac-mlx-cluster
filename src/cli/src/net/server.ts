@@ -23,11 +23,7 @@ export async function isServerUp(host: string, port: number, timeoutMs = 2000): 
   return health(`http://${host}:${port}`, timeoutMs);
 }
 
-/**
- * Polls until the server at host:port answers or timeoutMs elapses. Used
- * after any remote start/restart (initial connect, /model switch) — a model
- * load can take anywhere from a couple seconds to a minute-plus.
- */
+// Used after any remote start/restart — a model load can take seconds to a minute-plus.
 export async function pollUntilHealthy(host: string, port: number, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -70,31 +66,16 @@ function mlxLmSupports(venvPath: string, modelType: string): boolean {
   return true; // unknown layout: keep the historical mlx_lm default
 }
 
-/**
- * Picks which server binary serves a repo. Multimodal models mlx_lm has no
- * implementation for (Muse-Glimmer) must run under `mlx_vlm.server`; mlx_lm
- * rejects them with "Model type <x> not supported" — but only when the first
- * request triggers the lazy load, so /v1/models answers fine and the failure
- * looks like a broken connection rather than the wrong binary.
- *
- * Deliberately keyed on what mlx_lm actually supports rather than on the
- * config having a `vision_config`: some repos (Qwen3.5) are multimodal AND
- * implemented in both packages, and those should keep using mlx_lm as they
- * always have. Anything mlx_lm can't load falls to mlx_vlm.
- */
+// Keyed on what mlx_lm actually supports, not on `vision_config` presence — some multimodal
+// repos are implemented in both packages and should keep using mlx_lm. Falls to mlx_vlm otherwise.
 export function pickServerBinary(venvPath: string, repo: string): "mlx_lm.server" | "mlx_vlm.server" {
   const modelType = cachedModelType(repo);
   if (!modelType) return "mlx_lm.server";
   return mlxLmSupports(venvPath, modelType) ? "mlx_lm.server" : "mlx_vlm.server";
 }
 
-/**
- * Spawns the venv's model server (`mlx_lm.server`, or `mlx_vlm.server` for
- * vision models — see isVisionModel), bound to localhost, and waits for it
- * to become healthy. Used only in local-fallback mode (the M1's LaunchAgent
- * unreachable) — this CLI owns the process for the session and kills it on
- * quit (see stopLocalServer).
- */
+// Spawns the venv's model server bound to localhost. Local-fallback mode only — this CLI
+// owns the process and kills it on quit (stopLocalServer).
 export async function startLocalServer(
   venvPath: string,
   model: string,
@@ -114,10 +95,7 @@ export async function startLocalServer(
 
   const base = `http://127.0.0.1:${port}`;
 
-  // Normal connects attach to an already-healthy server before ever getting
-  // here (cluster.ts attachOrStartLocal) — reaching this means something
-  // grabbed the port mid-session (e.g. between a /model switch's stop and
-  // respawn), which isn't ours to replace.
+  // Reaching this means something grabbed the port mid-session, which isn't ours to replace.
   if (await health(base, 800)) {
     throw new LocalSpawnError(
       `another server is already answering on port ${port} — stop it first, or restart ` +

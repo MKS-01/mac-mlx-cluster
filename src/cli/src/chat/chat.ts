@@ -1,12 +1,6 @@
-// Streaming client for an OpenAI-compatible /v1/chat/completions endpoint —
-// same protocol as tools/chat.py, adapted to fetch's ReadableStream so it
-// can drive an Ink UI incrementally instead of printing to stdout.
+// Streaming client for an OpenAI-compatible /v1/chat/completions endpoint.
 
-// "tool" is the OpenAI role for a tool's result; "action" is display-only —
-// it never goes to the server, only into the transcript to show what the
-// agent did (see src/agent/agentLoop.ts and ChatView.tsx). tool_calls /
-// tool_call_id are the OpenAI tool-calling fields, present only on the
-// assistant turn that requests tools and the tool messages that answer them.
+// "action" is display-only — never sent to the server, just shown in the transcript.
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool" | "action";
   content: string;
@@ -38,23 +32,13 @@ export interface AgentTurnResult {
   finishReason: string | null;
 }
 
-/**
- * One non-streaming tool-aware turn against /v1/chat/completions. The agent
- * loop (src/agent/agentLoop.ts) drives this repeatedly: send the running
- * message list + tool specs, get back either final text or tool calls to
- * execute. Non-streaming on purpose — accumulating streamed tool_call deltas
- * is fiddly and error-prone with 4-bit local models, and the loop already
- * breaks the interaction into discrete tool steps, so there's no live-typing
- * UX to preserve within a turn. Throws ChatStreamError (display-ready) on any
- * failure, same contract as streamChat.
- */
+// One non-streaming tool-aware turn. Non-streaming on purpose: accumulating streamed
+// tool_call deltas is fiddly with 4-bit local models, and there's no live-typing UX to preserve.
 export async function agentTurn(opts: {
   base: string;
   messages: ChatMessage[];
   tools: ToolSpec[];
-  // Repo id sent as `model` so mlx_lm.server serves/loads it from the shared
-  // cache — lets the agent use its own (lighter, MoE) model regardless of
-  // what the chat session is serving. Omitted → the server's loaded model.
+  // Lets the agent use its own model regardless of what the chat session is serving.
   model?: string;
   maxTokens?: number;
   signal?: AbortSignal;
@@ -107,13 +91,7 @@ export async function agentTurn(opts: {
   };
 }
 
-/**
- * Token accounting for one completed exchange. Both servers report this in a
- * final SSE chunk when the request asks for it via
- * `stream_options.include_usage` (verified on mlx_lm.server 0.31.3 and
- * mlx_vlm.server 0.6.13) — so these are the server's own counts, not an
- * estimate from counting deltas.
- */
+// Token accounting for one exchange; server-reported counts, not an estimate from deltas.
 export interface ChatUsage {
   promptTokens: number;
   completionTokens: number;
@@ -125,11 +103,7 @@ export interface ChatUsage {
   elapsedMs: number;
 }
 
-/**
- * One-line transcript summary of a finished exchange, e.g.
- * `↑ 412 in · ↓ 128 out · 23.4 tok/s · 5.5s`. Rendered as an "action" row —
- * display-only, never sent back to the server (see ChatMessage's role doc).
- */
+// One-line transcript summary, e.g. `↑ 412 in · ↓ 128 out · 23.4 tok/s · 5.5s`.
 export function formatUsage(u: ChatUsage): string {
   const parts = [
     `↑ ${u.promptTokens} in`,
@@ -150,33 +124,18 @@ export class ChatStreamError extends Error {
 export interface StreamChatOptions {
   base: string;
   messages: ChatMessage[];
-  /**
-   * Repo id to generate with. Optional only for back-compat with
-   * `mlx_lm.server`, which falls back to whatever model it was started with;
-   * `mlx_vlm.server` validates the body with pydantic and rejects a missing
-   * `model` with a 422, so always pass it.
-   */
+  // Optional for mlx_lm.server back-compat; mlx_vlm.server 422s without it, so always pass it.
   model?: string;
   maxTokens?: number;
   signal?: AbortSignal;
   onToken: (chunk: string) => void;
-  /**
-   * Called once with the server's token counts when the stream ends, before
-   * this resolves. Skipped entirely if the server sends no usage chunk, so
-   * callers must treat it as best-effort rather than guaranteed.
-   */
+  /** Best-effort: skipped if the server sends no usage chunk. */
   onUsage?: (usage: ChatUsage) => void;
-  /** per-read idle timeout in ms — guards against a hung connection that never closes */
+  /** Guards against a hung connection that never closes. */
   idleTimeoutMs?: number;
 }
 
-/**
- * Streams a chat completion, calling onToken per delta. Resolves with the
- * full assistant reply. Throws ChatStreamError on any failure (network,
- * non-2xx, malformed SSE, idle timeout, or abort) with a message suitable
- * for direct display — callers should catch this and keep the session alive
- * rather than crashing.
- */
+// Throws ChatStreamError (display-ready message) on any failure; callers keep the session alive.
 export async function streamChat(opts: StreamChatOptions): Promise<string> {
   const { base, messages, model, maxTokens = 2048, signal, onToken, onUsage, idleTimeoutMs = 60_000 } = opts;
   const startedAt = Date.now();
@@ -191,9 +150,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
         messages,
         max_tokens: maxTokens,
         stream: true,
-        // Asks for the trailing usage chunk. Servers that don't know the
-        // option ignore it (it's inert extra JSON), so this stays safe
-        // against an older mlx_lm.server — we just get no usage line.
+        // Asks for the trailing usage chunk; older servers just ignore the option.
         stream_options: { include_usage: true },
       }),
       signal,
@@ -220,16 +177,9 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
   const decoder = new TextDecoder();
   let buf = "";
   const pieces: string[] = [];
-  // Reasoning models (e.g. Qwen3.6's thinking mode) stream their internal
-  // reasoning under delta.reasoning, separate from delta.content — mlx_lm.
-  // server counts both against max_tokens, so a verbose thinking pass can
-  // exhaust the whole budget before any content is ever emitted. Track
-  // whether that happened so it surfaces as a clear error instead of a
-  // silently empty reply.
+  // Thinking models can exhaust max_tokens on reasoning alone, leaving content empty; track it.
   let sawReasoning = false;
   let finishReason: string | null = null;
-  // Final usage chunk (choices: [], usage: {...}) and mlx_vlm's extra
-  // `timings` block, both arriving after the last content delta.
   let rawUsage: any = null;
   let serverTps: number | null = null;
   let firstTokenAt: number | null = null;
@@ -277,10 +227,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
         const choice = parsed?.choices?.[0];
         if (choice?.finish_reason) finishReason = choice.finish_reason;
         if (choice?.delta?.reasoning) sawReasoning = true;
-        // Generation starts at the first token of ANY kind. Timing only the
-        // content deltas while dividing by completion_tokens (which counts
-        // reasoning too) inflates tok/s wildly on a thinking model — a long
-        // think followed by a short answer looked like 1400 tok/s.
+        // Time from first token of any kind — timing only content deltas inflated tok/s wildly.
         if (firstTokenAt === null && (choice?.delta?.reasoning || choice?.delta?.content)) {
           firstTokenAt = Date.now();
         }
@@ -299,8 +246,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<string> {
     }
   }
 
-  // Reported before the empty-reply checks below so a budget-exhausted turn
-  // still accounts for the tokens it actually burned.
+  // Reported before the empty-reply check so a budget-exhausted turn still accounts for its tokens.
   if (onUsage && rawUsage && typeof rawUsage.completion_tokens === "number") {
     const completionTokens = rawUsage.completion_tokens;
     const genMs = firstTokenAt === null ? 0 : Date.now() - firstTokenAt;

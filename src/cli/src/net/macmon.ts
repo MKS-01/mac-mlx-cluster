@@ -1,8 +1,5 @@
-// Polls `macmon serve` (http://<host>:<port>/json) on one or more Macs and
-// aggregates into combined + per-node figures for the stats bar.
-// Confirmed field shape locally (macmon 1.x):
-// { cpu_usage_pct, gpu_usage: [count, pct], memory: { ram_total, ram_usage },
-//   temp: { cpu_temp_avg, gpu_temp_avg }, ... }
+// Polls `macmon serve` (http://<host>:<port>/json) on one or more Macs and aggregates into
+// combined + per-node figures for the stats bar. Field shape confirmed on macmon 1.x.
 
 import { networkInterfaces } from "node:os";
 
@@ -33,13 +30,8 @@ export async function fetchMacmon(base: string, timeoutMs = 1500): Promise<Macmo
   }
 }
 
-/**
- * Which configured node is the Mac this CLI is running on: the one whose
- * IP is assigned to a local interface. With the bridge down neither
- * configured IP exists anywhere, so fall back to the peer — by convention
- * the CLI runs on the dev/peer Mac (the same assumption local mode's
- * "this Mac is the peer" fit-check already makes).
- */
+// The node whose IP is on a local interface. Falls back to the peer if the bridge is down,
+// by convention (the CLI runs on the dev/peer Mac).
 export function selfNodeId(server: { id: string; ip: string }, peer: { id: string; ip: string }): string {
   const local = new Set(
     Object.values(networkInterfaces())
@@ -59,9 +51,7 @@ export async function fetchNodeStats(
 ): Promise<NodeStats> {
   const base = `http://${host}:${port}`;
   let snapshot = await fetchMacmon(base);
-  // This Mac's own macmon doesn't need the bridge — if the configured IP is
-  // unreachable (solo session, cable unplugged), reach it over loopback so
-  // the memory section still shows the machine that's actually serving.
+  // If this Mac's own bridge IP is unreachable (solo session, cable unplugged), try loopback.
   if (!snapshot && isSelf) snapshot = await fetchMacmon(`http://127.0.0.1:${port}`);
   if (snapshot) return { id, reachable: true, snapshot, error: null };
   return {
